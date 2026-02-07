@@ -641,7 +641,6 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_CLOSE: {
         if (bCloseToTray && !bUpdateMode) { 
             ShowWindow(h, SW_HIDE); 
-            Shell_NotifyIconW(NIM_ADD, &nid); 
             return 0; 
         }
         break;
@@ -861,9 +860,8 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     SendMessageW(hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
     SendMessageW(hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSm);
     
-    if (bSilentStart) {
-        Shell_NotifyIconW(NIM_ADD, &nid);
-    } else {
+    Shell_NotifyIconW(NIM_ADD, &nid);
+    if (!bSilentStart) {
         ShowWindow(hMainWnd, SW_SHOW);
     }
     
