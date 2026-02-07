@@ -1,4 +1,4 @@
-# 🔄 Quick Rotate V6
+# 🔄 Quick Rotate
 ### Ultra-Lightweight & Modern Screen Rotation Utility for Windows
 
 ---
@@ -34,7 +34,7 @@
 * **Flipped Portrait:** Sets display to reverse **`vertical (270°)`**
 
 ### 2. ⚙️ Settings & Automation
- **`Click **Settings ⚙️** to configure tool behavior and automation:`**
+ **`Click Settings ⚙️ to configure tool behavior and automation:`**
 * **Minimize to Tray on Close:** Hides the app in the system tray instead of exiting when you click close.
 * **Start with Windows:** Integrates with the registry for automatic startup on boot.
 * **Tray Click Mode:** Configure the **Single-Click** behavior of the tray icon to either toggle between **`Landscape/Portrait`** or trigger a **`Clockwise rotation`**.
