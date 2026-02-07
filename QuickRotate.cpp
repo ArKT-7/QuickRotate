@@ -70,7 +70,7 @@ using namespace Gdiplus;
 #define ID_SC_FLIPPORT    4004
 #define ID_SC_APP         4005
 
-const wchar_t* AppTitle = L"Quick Rotate V6 by ArKT";
+const wchar_t* AppTitle = L"Quick Rotate V6";
 const wchar_t* AppClass = L"ArKT_QuickRotate";
 
 HFONT hFontBold = NULL;
@@ -99,7 +99,7 @@ bool bShortcutsState[6] = {0};
 
 HWND hBtnRot[5];
 HWND hBtnSettings; 
-HWND hSetControls[10];
+HWND hSetControls[11];
 
 struct AutoMemDC {
     HDC hDC, hMemDC; HBITMAP hBM, hOldBM; Graphics* g; int x, y, w, h;
@@ -339,7 +339,10 @@ void ToggleViewMode(HWND h) {
     ShowWindow(hBtnSettings, showMain);
 
     int showSet = bSettingsMode ? SW_SHOW : SW_HIDE;
-    for (int i=0; i<10; i++) ShowWindow(hSetControls[i], showSet);
+    for (int i=0; i<11; i++) ShowWindow(hSetControls[i], showSet);
+
+    SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
+    SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
     InvalidateRect(h, NULL, TRUE);
 
@@ -387,30 +390,39 @@ void UpdateLayout(HWND h) {
 void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFilled) {
     Pen pen(c, S(2));
     SolidBrush brush(c);
+    GraphicsPath p;
 
-    int shortSide = s * 0.67; 
-    int pad = (s - shortSide) / 2;
+    if (id >= 100 && id <= 103) {
+        int ss = s * 0.67, pad = (s - ss) / 2;
+        Rect r = (id % 2 == 0) ? Rect(x, y + pad, s, ss) : Rect(x + pad, y, ss, s);
+        int gw = S(1), L = r.X, T = r.Y, R = r.GetRight(), B = r.GetBottom();
+        int cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2;
 
-    if (id == 100 || id == 102) {
-        Rect r(x, y + pad, s, shortSide);
-        if (isFilled) g.FillRectangle(&brush, r);
-        else g.DrawRectangle(&pen, r);
-    }
-    else if (id == 101 || id == 103) {
-        Rect r(x + pad, y, shortSide, s);
-        if (isFilled) g.FillRectangle(&brush, r);
-        else g.DrawRectangle(&pen, r);
+        if (id == 100) {
+            p.AddLine(R, cy + gw, R, B); p.AddLine(R, B, L, B); 
+            p.AddLine(L, B, L, T); p.AddLine(L, T, R, T); p.AddLine(R, T, R, cy - gw);
+        } else if (id == 102) {
+            p.AddLine(L, cy - gw, L, T); p.AddLine(L, T, R, T); 
+            p.AddLine(R, T, R, B); p.AddLine(R, B, L, B); p.AddLine(L, B, L, cy + gw);
+        } else if (id == 103) {
+            p.AddLine(cx + gw, T, R, T); p.AddLine(R, T, R, B); 
+            p.AddLine(R, B, L, B); p.AddLine(L, B, L, T); p.AddLine(L, T, cx - gw, T);
+        } else {
+            p.AddLine(cx + gw, B, R, B); p.AddLine(R, B, R, T); 
+            p.AddLine(R, T, L, T); p.AddLine(L, T, L, B); p.AddLine(L, B, cx - gw, B);
+        }
+        if (isFilled) g.FillPath(&brush, &p); else g.DrawPath(&pen, &p);
     }
     else if (id == 105) {
-        int arrowPad = S(1); 
-        Rect r(x + arrowPad, y + arrowPad, s - 2*arrowPad, s - 2*arrowPad);
+        int k = S(1); 
+        Rect r(x + k, y + k, s - 2*k, s - 2*k);
         pen.SetEndCap(LineCapArrowAnchor);
         g.DrawArc(&pen, r, 0, 290);
     }
     else if (id == ID_TRAY_RESTORE) { 
-        Rect r(x + S(1), y + S(-2), s - S(3.5), s - S(-3));
+        Rect r(x + S(1), y + S(-1), s - S(3), s - S(-1));
         g.DrawRectangle(&pen, r);
-        g.DrawLine(&pen, x + S(1), y + S(4), x + s - S(2), y + S(4));
+        g.DrawLine(&pen, x + S(1), y + S(5), x + s - S(2), y + S(5));
     }
     else if (id == ID_TRAY_EXIT) {
         int p = S(2); 
@@ -480,6 +492,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         for (int i = 0; i < 5; i++) {
             hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
         }
+
+        hSetControls[10] = CreateWindowW(L"STATIC", L"Quick Rotate 6.0.5 by ArKT", WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
+            S(BTN_X), S(435), S(BTN_W), S(25), h, NULL, GetModuleHandle(NULL), NULL);
+        SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
         nid.cbSize = sizeof(NOTIFYICONDATAW); nid.hWnd = h; nid.uID = 1001; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP; nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = hIconSm;
