@@ -17,6 +17,10 @@
 #include <gdiplus.h>
 #include <cstdio>
 
+#ifndef ODS_NOFOCUSRECT
+#define ODS_NOFOCUSRECT 0x0200
+#endif
+
 #pragma comment(lib, "kernel32.lib")
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "gdi32.lib")
@@ -81,6 +85,7 @@ HICON hIconBig = NULL;
 WNDPROC oldBtnProc;
 HWND hHover = NULL;
 HWND hMainWnd = NULL;
+bool g_bShowFocus = false;
 
 ULONG_PTR gdiplusToken;
 int currentScreenRot = -1;
@@ -338,6 +343,12 @@ void ToggleViewMode(HWND h) {
     for (int i=0; i<10; i++) ShowWindow(hSetControls[i], showSet);
 
     InvalidateRect(h, NULL, TRUE);
+
+    if (bSettingsMode) {
+        SetFocus(hSetControls[0]); 
+    } else {
+        SetFocus(hBtnRot[0]); 
+    }
 }
 
 void RecreateFonts() {
@@ -439,15 +450,15 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hBtnRot[i] = CreateMyButton(h, txt[i], ids[i], BTN_X, 20 + (i * 75), BTN_W, BTN_H, WS_VISIBLE | WS_TABSTOP);
         }
 
-        hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, 390, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON);
+        hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, 390, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP);
         
-        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON);
-        hSetControls[1] = CreateMyButton(h, L"Minimize to Tray on Close", ID_CHK_TRAY, BTN_X, 20, BTN_W, 30);
-        hSetControls[2] = CreateMyButton(h, L"Start with Windows", ID_CHK_AUTOSTART, BTN_X, 60, BTN_W, 30);
+        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
+        hSetControls[1] = CreateMyButton(h, L"Minimize to Tray on Close", ID_CHK_TRAY, BTN_X, 20, BTN_W, 30, WS_TABSTOP);
+        hSetControls[2] = CreateMyButton(h, L"Start with Windows", ID_CHK_AUTOSTART, BTN_X, 60, BTN_W, 30, WS_TABSTOP);
 
         LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Rotate Clockwise \u27F3";
-        hSetControls[8] = CreateMyButton(h, trayText, ID_CHK_TRAYMODE, BTN_X, 100, BTN_W, 30);
-        hSetControls[9] = CreateMyButton(h, L"Shortcut: Quick Rotate App", ID_SC_APP, BTN_X, 160, BTN_W, 30);
+        hSetControls[8] = CreateMyButton(h, trayText, ID_CHK_TRAYMODE, BTN_X, 100, BTN_W, 30, WS_TABSTOP);
+        hSetControls[9] = CreateMyButton(h, L"Shortcut: Quick Rotate App", ID_SC_APP, BTN_X, 160, BTN_W, 30, WS_TABSTOP);
 
         LPCWSTR scTxt[] = {
             L"Shortcut: Rotate Clockwise",
@@ -459,7 +470,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int scIds[] = { ID_SC_NEXT, ID_SC_LANDSCAPE, ID_SC_PORTRAIT, ID_SC_FLIPPED, ID_SC_FLIPPORT };
         
         for (int i = 0; i < 5; i++) {
-            hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30);
+            hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
         }
 
         nid.cbSize = sizeof(NOTIFYICONDATAW); nid.hWnd = h; nid.uID = 1001; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP; nid.uCallbackMessage = WM_TRAYICON;
@@ -523,6 +534,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (p->CtlType == ODT_BUTTON) {
             bool pressed = (p->itemState & ODS_SELECTED);
             bool hovered = (p->hwndItem == hHover);
+            bool focused = (p->itemState & ODS_FOCUS);
             int btnId = p->CtlID;
 
             if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT) {
@@ -542,6 +554,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SolidBrush tb(tc); buf.g->FillPath(&tb, &path);
                 SolidBrush wb(Color(255, 255, 255));
                 buf.g->FillEllipse(&wb, isChecked ? (tX + tW - S(16) - S(3)) : (tX + S(3)), tY + (tH - S(16)) / 2, S(16), S(16));
+
+                if (focused && g_bShowFocus) {
+                    Pen focusPen(Color(100, 100, 100), 1);
+                    focusPen.SetDashStyle(DashStyleDot);
+                    buf.g->DrawRectangle(&focusPen, S(2), S(2), w - S(4), h - S(4));
+                }
+
             } else {
                 Color bg, txt;
                 bool active = (btnId - 100 == currentScreenRot) && (btnId < 200);
@@ -574,11 +593,20 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
                 SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, txt.ToCOLORREF()); SelectObject(buf.hMemDC, hFontBold);
-                RECT tr = {0, 0, w, h}; if (pressed) OffsetRect(&tr, S(1), S(1));
+                RECT tr = {0, 0, w, h};
                 if (btnId >= 200 || btnId == ID_BTN_SETTINGS) DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 else {
                     RECT cr = tr; DrawTextW(buf.hMemDC, text, -1, &cr, DT_CALCRECT | DT_CENTER | DT_WORDBREAK);
                     tr.top += (h - (cr.bottom - cr.top)) / 2; DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_WORDBREAK);
+                }
+
+                if (focused && g_bShowFocus) {
+                    Pen focusPen(pressed ? Color(200, 200, 200) : Color(255, 255, 255), 1);
+                    focusPen.SetDashStyle(DashStyleDot);
+                    GraphicsPath focusPath; 
+                    Rect fr(S(5), S(5), w - S(10), h - S(10));
+                    GetRoundedRectPath(&focusPath, fr, S(CORNER_RADIUS) * 2 - S(4));
+                    buf.g->DrawPath(&focusPen, &focusPath);
                 }
             }
         } else if (p->CtlType == ODT_MENU) {
@@ -866,7 +894,24 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     }
     
     MSG msg;
-    while (GetMessageW(&msg, NULL, 0, 0)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+    while (GetMessageW(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) {
+            g_bShowFocus = true;
+        } else if (msg.message == WM_LBUTTONDOWN || msg.message == WM_RBUTTONDOWN) {
+            g_bShowFocus = false;
+        }
+
+        if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
+            msg.wParam = VK_SPACE; 
+        } else if (msg.message == WM_KEYUP && msg.wParam == VK_RETURN) {
+            msg.wParam = VK_SPACE;
+        }
+
+        if (!IsDialogMessage(hMainWnd, &msg)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
     
     if (bUpdateMode) {
         wchar_t current[MAX_PATH]; GetModuleFileNameW(NULL, current, MAX_PATH);

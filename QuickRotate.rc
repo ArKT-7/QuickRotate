@@ -5,13 +5,13 @@ BEGIN
     "<assembly xmlns=""urn:schemas-microsoft-com:asm.v1"" manifestVersion=""1.0"" xmlns:asmv3=""urn:schemas-microsoft-com:asm.v3"">\r\n"
     
     "  \r\n"
-    "  <assemblyIdentity version=""6.0.2.0"" processorArchitecture=""*"" name=""ArKT.QuickRotate"" type=""win32""/>\r\n"
+    "  <assemblyIdentity version=""6.0.3.0"" processorArchitecture=""*"" name=""ArKT.QuickRotate"" type=""win32""/>\r\n"
     "  <description>Quick Rotate V6 by ArKT-7</description>\r\n"
     
     "  \r\n"
     "  <dependency>\r\n"
     "    <dependentAssembly>\r\n"
-    "      <assemblyIdentity type=""win32"" name=""Microsoft.Windows.Common-Controls"" version=""6.0.2.0"" processorArchitecture=""*"" publicKeyToken=""6595b64144ccf1df"" language=""*""/>\r\n"
+    "      <assemblyIdentity type=""win32"" name=""Microsoft.Windows.Common-Controls"" version=""6.0.3.0"" processorArchitecture=""*"" publicKeyToken=""6595b64144ccf1df"" language=""*""/>\r\n"
     "    </dependentAssembly>\r\n"
     "  </dependency>\r\n"
     
@@ -46,8 +46,8 @@ BEGIN
 END
 101 ICON "icon.ico"
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 6,0,2,0
-PRODUCTVERSION 6,0,2,0
+FILEVERSION 6,0,3,0
+PRODUCTVERSION 6,0,3,0
 FILEFLAGSMASK 0x3fL
 #ifdef _DEBUG
 FILEFLAGS 0x1L
@@ -64,12 +64,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "ArKT-7"
             VALUE "FileDescription", "Quick Rotate V6 by ArKT-7"
-            VALUE "FileVersion", "6.0.2.0"
+            VALUE "FileVersion", "6.0.3.0"
             VALUE "InternalName", "QuickRotate"
             VALUE "LegalCopyright", "Copyright (C) 2026 ArKT-7"
             VALUE "OriginalFilename", "QuickRotate.exe"
             VALUE "ProductName", "Quick Rotate"
-            VALUE "ProductVersion", "6.0.2.0"
+            VALUE "ProductVersion", "6.0.3.0"
             VALUE "Comments", "https://github.com/ArKT-7/QuickRotate"
             VALUE "LegalTrademarks", "ArKT-7"
         END
