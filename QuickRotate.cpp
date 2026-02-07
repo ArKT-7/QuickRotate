@@ -15,7 +15,6 @@
 #include <shlobj.h>
 #include <shlwapi.h> 
 #include <gdiplus.h>
-#include <cstdio>
 
 #ifndef ODS_NOFOCUSRECT
 #define ODS_NOFOCUSRECT 0x0200
@@ -451,14 +450,23 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
 
         hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, 390, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP);
-        
-        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
-        hSetControls[1] = CreateMyButton(h, L"Minimize to Tray on Close", ID_CHK_TRAY, BTN_X, 20, BTN_W, 30, WS_TABSTOP);
-        hSetControls[2] = CreateMyButton(h, L"Start with Windows", ID_CHK_AUTOSTART, BTN_X, 60, BTN_W, 30, WS_TABSTOP);
 
+        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
+
+        struct TogData { int idx; LPCWSTR txt; int id; int y; };
         LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Rotate Clockwise \u27F3";
-        hSetControls[8] = CreateMyButton(h, trayText, ID_CHK_TRAYMODE, BTN_X, 100, BTN_W, 30, WS_TABSTOP);
-        hSetControls[9] = CreateMyButton(h, L"Shortcut: Quick Rotate App", ID_SC_APP, BTN_X, 160, BTN_W, 30, WS_TABSTOP);
+        
+        TogData togs[] = {
+            {1, L"Minimize to Tray on Close", ID_CHK_TRAY, 20},
+            {2, L"Start with Windows", ID_CHK_AUTOSTART, 60},
+            {8, trayText, ID_CHK_TRAYMODE, 100},
+            {9, L"Shortcut: Quick Rotate App", ID_SC_APP, 160}
+        };
+
+        for (int i = 0; i < 4; i++) {
+            hSetControls[togs[i].idx] = CreateMyButton(h, togs[i].txt, togs[i].id, 
+                BTN_X, togs[i].y, BTN_W, 30, WS_TABSTOP);
+        }
 
         LPCWSTR scTxt[] = {
             L"Shortcut: Rotate Clockwise",
@@ -530,6 +538,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
 
         AutoMemDC buf(p->hDC, x, y, w, h);
+        Graphics* g = buf.g;
 
         if (p->CtlType == ODT_BUTTON) {
             bool pressed = (p->itemState & ODS_SELECTED);
@@ -551,14 +560,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 int tH = S(22), tW = S(44), tX = w - tW - S(2), tY = (h - tH) / 2;
                 GraphicsPath path; path.AddArc(tX, tY, tH, tH, 90, 180); path.AddArc(tX + tW - tH, tY, tH, tH, 270, 180); path.CloseFigure();
                 Color tc = isChecked ? (hovered ? Color(0, 140, 235) : Color(0, 120, 215)) : Color(180, 180, 180);
-                SolidBrush tb(tc); buf.g->FillPath(&tb, &path);
+                SolidBrush tb(tc); g->FillPath(&tb, &path);
                 SolidBrush wb(Color(255, 255, 255));
-                buf.g->FillEllipse(&wb, isChecked ? (tX + tW - S(16) - S(3)) : (tX + S(3)), tY + (tH - S(16)) / 2, S(16), S(16));
+                g->FillEllipse(&wb, isChecked ? (tX + tW - S(16) - S(3)) : (tX + S(3)), tY + (tH - S(16)) / 2, S(16), S(16));
 
                 if (focused && g_bShowFocus) {
                     Pen focusPen(Color(100, 100, 100), 1);
                     focusPen.SetDashStyle(DashStyleDot);
-                    buf.g->DrawRectangle(&focusPen, S(2), S(2), w - S(4), h - S(4));
+                    g->DrawRectangle(&focusPen, S(2), S(2), w - S(4), h - S(4));
                 }
 
             } else {
@@ -578,17 +587,17 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
                 GraphicsPath path; Rect r(S(2), S(2), w - S(4), h - S(4));
                 GetRoundedRectPath(&path, r, S(CORNER_RADIUS) * 2);
-                SolidBrush b(bg); buf.g->FillPath(&b, &path);
+                SolidBrush b(bg); g->FillPath(&b, &path);
 
                 if (btnId >= 100 && btnId <= 105) {
-                    DrawProIcon(*buf.g, btnId, S(15), (h - S(20)) / 2, S(20), txt, active);
+                    DrawProIcon(*g, btnId, S(15), (h - S(20)) / 2, S(20), txt, active);
                 }
                 
                 if (active) {
                     Pen p(hovered ? Color(255, 255, 255) : Color(0, 120, 215), S(3));
                     p.SetStartCap(LineCapRound); p.SetEndCap(LineCapRound); p.SetLineJoin(LineJoinRound);
                     int tx = w - S(40), ty = h / 2;
-                    buf.g->DrawLine(&p, tx, ty, tx + S(5), ty + S(5)); buf.g->DrawLine(&p, tx + S(5), ty + S(5), tx + S(14), ty - S(6));
+                    g->DrawLine(&p, tx, ty, tx + S(5), ty + S(5)); g->DrawLine(&p, tx + S(5), ty + S(5), tx + S(14), ty - S(6));
                 }
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
@@ -606,21 +615,21 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     GraphicsPath focusPath; 
                     Rect fr(S(5), S(5), w - S(10), h - S(10));
                     GetRoundedRectPath(&focusPath, fr, S(CORNER_RADIUS) * 2 - S(4));
-                    buf.g->DrawPath(&focusPen, &focusPath);
+                    g->DrawPath(&focusPen, &focusPath);
                 }
             }
         } else if (p->CtlType == ODT_MENU) {
-            buf.g->Clear(Color(255, 255, 255));
+            g->Clear(Color(255, 255, 255));
             if (p->itemID == 0) {
-                Pen pen(Color(220, 220, 220), 1); buf.g->DrawLine(&pen, S(10), h / 2, w - S(10), h / 2);
+                Pen pen(Color(220, 220, 220), 1); g->DrawLine(&pen, S(10), h / 2, w - S(10), h / 2);
             } else {
                 if (p->itemState & ODS_SELECTED) {
                     Rect r(S(4), S(2), w - S(8), h - S(4));
                     GraphicsPath path; GetRoundedRectPath(&path, r, S(8));
-                    SolidBrush b(Color(230, 243, 255)); buf.g->FillPath(&b, &path);
+                    SolidBrush b(Color(230, 243, 255)); g->FillPath(&b, &path);
                 }
                 bool chk = (p->itemState & ODS_CHECKED);
-                DrawProIcon(*buf.g, p->itemID, S(12), (h - S(16)) / 2, S(16), chk ? Color(0, 120, 215) : Color(150, 150, 150), chk);
+                DrawProIcon(*g, p->itemID, S(12), (h - S(16)) / 2, S(16), chk ? Color(0, 120, 215) : Color(150, 150, 150), chk);
 
                 SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontMenu);
                 RECT tr = {S(40), 0, w, h}; DrawTextW(buf.hMemDC, (LPCWSTR)p->itemData, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
