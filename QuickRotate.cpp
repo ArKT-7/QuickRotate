@@ -686,7 +686,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             InvalidateRect((HWND)l, NULL, FALSE);
         }
 
-        else if (id == ID_TRAY_RESTORE) { ShowWindow(h, SW_RESTORE); SetForegroundWindow(h); Shell_NotifyIconW(NIM_DELETE, &nid); }
+        else if (id == ID_TRAY_RESTORE) { ShowWindow(h, SW_RESTORE); SetForegroundWindow(h); }
         else if (id == ID_TRAY_EXIT) { Shell_NotifyIconW(NIM_DELETE, &nid); DestroyWindow(h); }
         return 0;
     }
@@ -726,7 +726,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
             SetForegroundWindow(h); TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, p.x, p.y, 0, h, NULL); DestroyMenu(hMenu);
         }
-        else if (l == WM_LBUTTONDBLCLK) { ShowWindow(h, SW_SHOW); SetForegroundWindow(h); Shell_NotifyIconW(NIM_DELETE, &nid); }
+        else if (l == WM_LBUTTONDBLCLK) { ShowWindow(h, SW_SHOW); SetForegroundWindow(h); }
         return 0;
     }
 
