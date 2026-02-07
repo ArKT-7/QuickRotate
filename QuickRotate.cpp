@@ -1,7 +1,7 @@
 /*
   Quick Rotate V6 by ArKT | Modern Display Orientation Tool/Utility for Windows
   Copyright (c) 2026 ArKT-7 (https://github.com/ArKT-7/QuickRotate)
-  Build: windres QuickRotate.rc -o QuickRotate_res.o; g++ QuickRotate.cpp QuickRotate_res.o -o QuickRotate.exe -static -nostartfiles -e _WinMain@16 -Os -s -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer "-Wl,--gc-sections" -lgdi32 -luser32 -lgdiplus -lshlwapi -lshell32 -lole32 -luuid -ladvapi32 -mwindows
+  Build: windres QuickRotate.rc -O coff -o QuickRotate_res.o; g++ QuickRotate.cpp QuickRotate_res.o -o QuickRotate.exe -static -nostartfiles -e _WinMain@16 -Os -s -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer "-Wl,--gc-sections" -lgdi32 -luser32 -lgdiplus -lshlwapi -lshell32 -lole32 -luuid -ladvapi32 -mwindows
 */
 
 #define _WIN32_WINNT 0x0605
@@ -214,7 +214,7 @@ HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
 }
 
 void ManageShortcut(int index, bool create) {
-    LPCWSTR names[] = {L"Rotate Screen", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
+    LPCWSTR names[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
     LPCWSTR args[]  = {L"next", L"0", L"90", L"180", L"270", L""};
     
     if (create) {
@@ -322,7 +322,7 @@ void ToggleViewMode(HWND h) {
     bSettingsMode = !bSettingsMode;
 
     if (bSettingsMode) {
-        LPCWSTR names[] = {L"Rotate Screen", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
+        LPCWSTR names[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
         for(int i=0; i<6; i++) {
             wchar_t path[MAX_PATH];
             GetLinkPath(path, names[i]);
