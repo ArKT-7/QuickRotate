@@ -13,7 +13,7 @@
 
 ## ✨ Features
 
-- ✅ **Minimalist Footprint:** Highly optimized executable at only **`~34KB-44KB`**
+- ✅ **Minimalist Footprint:** Highly optimized executable at only **`~50KB`**
 - ✅ **Cross-Platform Compatibility:** Supports **x86, x64, and ARM32** architectures
 - ✅ **Native Compilation:** Written entirely in C++ and compiles with **g++ (MinGW)**
 - ✅ **Modern Aesthetics:** Anti-aliased icons, rounded corners, and Windows 11 style rendering

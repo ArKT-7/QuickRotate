@@ -5,6 +5,7 @@ on:
     branches:
       - main
     paths:
+      - 'version.h'
       - 'QuickRotate.cpp'
       - 'QuickRotate.rc'
       - 'icon.ico'
@@ -53,19 +54,16 @@ jobs:
           Copy-Item "QuickRotate.exe" -Destination "QuickRotate_Signed.exe"
           $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" | Select-Object -First 1
           if (-not $signtool) { Write-Error "Signtool not found!"; exit 1 }
-          & $signtool.FullName sign /f "certificate.pfx" /p "$env:CERT_PASS" /fd SHA256 /d "Quick Rotate by ArKT-7" /du "https://github.com/ArKT-7" /t http://timestamp.sectigo.com "QuickRotate_Signed.exe"
+          & $signtool.FullName sign /f "certificate.pfx" /p "$env:CERT_PASS" /fd SHA256 /d "Quick Rotate by ArKT-7" /du "https://github.com/ArKT-7" /tr http://timestamp.digicert.com /td sha256 "QuickRotate_Signed.exe"
           Remove-Item "certificate.pfx" -Force
 
       - name: Get Version & Date
         id: info
         shell: pwsh
         run: |
-          $rcContent = Get-Content QuickRotate.rc
-          $verLine = $rcContent | Select-String "FILEVERSION" | Select-Object -First 1
-          $fullVer = $verLine.ToString().Replace("FILEVERSION", "").Trim().Replace(",", ".")
-          $parts = $fullVer.Split('.')
-          $shortVer = "$($parts[0]).$($parts[1]).$($parts[2])"
-          echo "APP_VERSION=$shortVer" >> $env:GITHUB_ENV
+          $verLine = Get-Content version.h | Select-String "VERSION_STR" | Select-Object -First 1
+          $version = $verLine.ToString().Split('"')[1]
+          echo "APP_VERSION=$version" >> $env:GITHUB_ENV
           
           $date = (Get-Date).ToUniversalTime().ToString("d MMMM yyyy")
           $time = (Get-Date).ToUniversalTime().ToString("HH:mm 'UTC'")
