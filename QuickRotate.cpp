@@ -307,6 +307,8 @@ void GetRoundedRectPath(GraphicsPath* path, Rect r, int d) {
 }
 
 LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    int id = GetDlgCtrlID(h);
+    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) InvalidateRect(h, NULL, FALSE);
     if (m == WM_MOUSEMOVE) {
         if (hHover != h) {
             hHover = h;
@@ -466,7 +468,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
 
         struct TogData { int idx; LPCWSTR txt; int id; int y; };
-        LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Rotate Clockwise \u27F3";
+        LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Cycle Rotation (Next \u27F3)";
         
         TogData togs[] = {
             {1, L"Minimize to Tray on Close", ID_CHK_TRAY, 20},
@@ -493,7 +495,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
         }
 
-        hSetControls[10] = CreateWindowW(L"STATIC", L"Quick Rotate 6.0.5 by ArKT", WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
+        hSetControls[10] = CreateWindowW(L"STATIC", L"Quick Rotate 6.0.6 by ArKT", WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
             S(BTN_X), S(435), S(BTN_W), S(25), h, NULL, GetModuleHandle(NULL), NULL);
         SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
@@ -562,11 +564,29 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             bool focused = (p->itemState & ODS_FOCUS);
             int btnId = p->CtlID;
 
-            if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT) {
+            if (btnId == ID_CHK_TRAYMODE) {
+                g->Clear(Color(240, 240, 240)); 
+                wchar_t buf_t[64]; GetWindowTextW(p->hwndItem, buf_t, 64);
+                SetBkMode(buf.hMemDC, 1); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontHeader);
+                RECT tr = {S(5), 0, w - S(50), h}; DrawTextW(buf.hMemDC, buf_t, -1, &tr, 36); 
+                int bW = S(44), bH = S(24); Rect rB(w - bW - S(2), (h - bH) / 2, bW, bH);
+                bool hv = (hHover == p->hwndItem);
+                Color cB = pressed ? Color(0, 60, 120) : (hv ? Color(0, 140, 235) : Color(0, 120, 215));
+                GraphicsPath ph; GetRoundedRectPath(&ph, rB, S(24));
+                SolidBrush br(cB); g->FillPath(&br, &ph);
+                Pen pn(Color(255, 255, 255), S(2));
+                pn.SetStartCap(LineCapRound); pn.SetEndCap(LineCapRound);
+                int cx = rB.X + bW/2, cy = rB.Y + bH/2, f = S(3);
+                g->DrawLine(&pn, cx-f, cy-f, cx+f-S(1), cy); g->DrawLine(&pn, cx+f-S(1), cy, cx-f, cy+f);
+
+                if (focused && g_bShowFocus) {
+                    Pen fp(Color(150, 150, 150), 1); fp.SetDashStyle(DashStyleDot);
+                    g->DrawRectangle(&fp, rB);
+                }
+            } else if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT) {
                 bool isChecked = false;
                 if (btnId == ID_CHK_TRAY) isChecked = bCloseToTray;
                 else if (btnId == ID_CHK_AUTOSTART) isChecked = bAutoStart;
-                else if (btnId == ID_CHK_TRAYMODE) isChecked = bTrayToggleLP;
                 else if (btnId >= 4000) isChecked = bShortcutsState[btnId - 4000];
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
@@ -575,7 +595,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
                 int tH = S(22), tW = S(44), tX = w - tW - S(2), tY = (h - tH) / 2;
                 GraphicsPath path; path.AddArc(tX, tY, tH, tH, 90, 180); path.AddArc(tX + tW - tH, tY, tH, tH, 270, 180); path.CloseFigure();
-                Color tc = isChecked ? (hovered ? Color(0, 140, 235) : Color(0, 120, 215)) : Color(180, 180, 180);
+                Color tc = isChecked ? (hovered ? Color(0, 140, 235) : Color(0, 120, 215)) : (hovered ? Color(195, 195, 195) : Color(180, 180, 180));
                 SolidBrush tb(tc); g->FillPath(&tb, &path);
                 SolidBrush wb(Color(255, 255, 255));
                 g->FillEllipse(&wb, isChecked ? (tX + tW - S(16) - S(3)) : (tX + S(3)), tY + (tH - S(16)) / 2, S(16), S(16));
@@ -675,7 +695,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         }
         else if (id == ID_CHK_TRAYMODE) {
             bTrayToggleLP = !bTrayToggleLP;
-            SetWindowTextW(hSetControls[8], bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Rotate Clockwise \u27F3");
+            SetWindowTextW(hSetControls[8], bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Cycle Rotation (Next \u27F3)");
             SaveSettings();
             InvalidateRect((HWND)l, NULL, FALSE);
         }
