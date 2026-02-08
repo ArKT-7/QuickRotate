@@ -9,6 +9,7 @@
 #define _UNICODE
 #define WIN32_LEAN_AND_MEAN
 
+#include "version.h"
 #include <windows.h>
 #include <objbase.h>
 #include <shellapi.h>
@@ -20,16 +21,10 @@
 #define ODS_NOFOCUSRECT 0x0200
 #endif
 
-#pragma comment(lib, "kernel32.lib")
-#pragma comment(lib, "user32.lib")
-#pragma comment(lib, "gdi32.lib")
-#pragma comment(lib, "gdiplus.lib")
-#pragma comment(lib, "shell32.lib")
-#pragma comment(lib, "ole32.lib")
-#pragma comment(lib, "shlwapi.lib")
-#pragma comment(lib, "uuid.lib")
-#pragma comment(lib, "advapi32.lib")
 
+const CLSID CLSID_ShellLink = {0x00021401, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
+const IID IID_IShellLink    = {0x000214F9, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
+const IID IID_IPersistFile  = {0x0000010b, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
 int g_dpi = 96;
 
 int S(int value) {
@@ -56,7 +51,9 @@ using namespace Gdiplus;
 #define ID_BTN_FLIPPED    102
 #define ID_BTN_FLIPPORT   103
 #define ID_BTN_NEXT       105
-#define ID_BTN_SETTINGS   110 
+#define ID_BTN_SETTINGS   110
+#define ID_BTN_UPDATE     111
+#define ID_BTN_DOWNLOAD   301
 
 #define ID_BTN_BACK       200
 #define ID_CHK_TRAY       201
@@ -76,7 +73,7 @@ const wchar_t* AppClass = L"ArKT_QuickRotate";
 HFONT hFontBold = NULL;
 HFONT hFontNormal = NULL;
 HFONT hFontHeader = NULL;
-HFONT hFontMenu = NULL;
+HFONT hFontTitle = NULL;
 
 HICON hIconSm = NULL;
 HICON hIconBig = NULL;
@@ -89,8 +86,8 @@ bool g_bShowFocus = false;
 ULONG_PTR gdiplusToken;
 int currentScreenRot = -1;
 NOTIFYICONDATAW nid = {0};
-bool bCloseToTray = true; 
-bool bAutoStart = false; 
+bool bCloseToTray = true;
+bool bAutoStart = false;
 bool bSettingsMode = false;
 bool bUpdateMode = false;
 bool bTrayToggleLP = true;
@@ -98,8 +95,30 @@ wchar_t iniPath[MAX_PATH];
 bool bShortcutsState[6] = {0};
 
 HWND hBtnRot[5];
-HWND hBtnSettings; 
-HWND hSetControls[11];
+HWND hBtnSettings;
+HWND hSetControls[12];
+
+bool bUpdatePageMode = false;
+HBRUSH g_hBrBkgnd = NULL;
+HWND hLblStatus = NULL;
+HWND hLblCurVer = NULL;
+HWND hLblNewVer = NULL;
+HWND hBtnDownload = NULL;
+HWND hProgress = NULL;
+wchar_t g_downloadUrl[512] = {0};
+HMODULE g_hUrlMon = NULL, g_hWinInet = NULL;
+typedef HRESULT (WINAPI *tUD)(LPUNKNOWN, LPCWSTR, LPCWSTR, DWORD, LPVOID);
+typedef HRESULT (WINAPI *tOS)(LPUNKNOWN, LPCWSTR, IStream**, DWORD, LPVOID);
+typedef BOOL    (WINAPI *tDC)(LPCWSTR);
+tUD g_pDownload = NULL;
+tOS g_pOpenStream = NULL;
+tDC g_pDelCache = NULL;
+
+const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
+const wchar_t* CURRENT_VER = VERSION_W;
+void UpdateLayout(HWND h);
+void PerformUpdateCheck(HWND h);
+void PerformDownload(HWND h);
 
 struct AutoMemDC {
     HDC hDC, hMemDC; HBITMAP hBM, hOldBM; Graphics* g; int x, y, w, h;
@@ -324,7 +343,32 @@ LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     return CallWindowProc(oldBtnProc, h, m, w, l);
 }
 
+void ToggleUpdateView(HWND h, bool show) {
+    bUpdatePageMode = show;
+    UpdateLayout(h);
+
+    int showSC = show ? SW_HIDE : SW_SHOW;
+    for (int i = 3; i <= 7; i++) ShowWindow(hSetControls[i], showSC);
+    ShowWindow(hSetControls[9], showSC);
+
+    int showUpd = show ? SW_SHOW : SW_HIDE;
+    ShowWindow(hLblStatus, showUpd);
+    ShowWindow(hLblCurVer, showUpd);
+    ShowWindow(hLblNewVer, showUpd);
+    ShowWindow(hProgress, showUpd);
+    
+    if (!show) ShowWindow(hBtnDownload, SW_HIDE);
+    if (show) PerformUpdateCheck(h);
+    
+    InvalidateRect(h, NULL, TRUE);
+}
+
 void ToggleViewMode(HWND h) {
+    if (bUpdatePageMode) {
+        ToggleUpdateView(h, false);
+        return;
+    }
+
     bSettingsMode = !bSettingsMode;
 
     if (bSettingsMode) {
@@ -341,7 +385,7 @@ void ToggleViewMode(HWND h) {
     ShowWindow(hBtnSettings, showMain);
 
     int showSet = bSettingsMode ? SW_SHOW : SW_HIDE;
-    for (int i=0; i<11; i++) ShowWindow(hSetControls[i], showSet);
+    for (int i=0; i<12; i++) ShowWindow(hSetControls[i], showSet);
 
     SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
     SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
@@ -356,15 +400,12 @@ void ToggleViewMode(HWND h) {
 }
 
 void RecreateFonts() {
-    if (hFontBold) DeleteObject(hFontBold);
-    if (hFontNormal) DeleteObject(hFontNormal);
-    if (hFontHeader) DeleteObject(hFontHeader);
-    if (hFontMenu) DeleteObject(hFontMenu);
+    if (hFontTitle) DeleteObject(hFontTitle);
     
-    hFontBold = CreateFontW(S(22),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
+    hFontBold = CreateFontW(S(21),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
     hFontNormal = CreateFontW(S(17),0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
     hFontHeader = CreateFontW(S(19),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
-    hFontMenu = CreateFontW(S(18),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
+    hFontTitle = CreateFontW(S(27),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
 }
 
 void UpdateLayout(HWND h) {
@@ -374,7 +415,10 @@ void UpdateLayout(HWND h) {
         SetWindowPos(hBtnRot[i], NULL, S(BTN_X), S(20 + (i * 75)), S(BTN_W), S(BTN_H), SWP_NOZORDER);
     }
     SetWindowPos(hBtnSettings, NULL, S(BTN_X), S(390), S(BTN_W), S(BTN_SH), SWP_NOZORDER);
-    SetWindowPos(hSetControls[0], NULL, S(BTN_X), S(390), S(BTN_W), S(BTN_SH), SWP_NOZORDER);
+
+    int halfW = (BTN_W - 10) / 2;
+    SetWindowPos(hSetControls[0], NULL, S(BTN_X), S(390), S(halfW), S(BTN_SH), SWP_NOZORDER);
+    SetWindowPos(hSetControls[11], NULL, S(BTN_X + halfW + 10), S(390), S(halfW), S(BTN_SH), SWP_NOZORDER);
 
     SetWindowPos(hSetControls[1], NULL, S(BTN_X), S(20), S(BTN_W), S(30), SWP_NOZORDER);
     SetWindowPos(hSetControls[2], NULL, S(BTN_X), S(60), S(BTN_W), S(30), SWP_NOZORDER);
@@ -382,8 +426,15 @@ void UpdateLayout(HWND h) {
     SetWindowPos(hSetControls[9], NULL, S(BTN_X), S(160), S(BTN_W), S(30), SWP_NOZORDER);
 
     int startY = 198;
-    for (int i = 0; i < 5; i++) {
-        SetWindowPos(hSetControls[3+i], NULL, S(BTN_X), S(startY + (i * 38)), S(BTN_W), S(30), SWP_NOZORDER);
+    for (int i = 0; i < 5; i++) SetWindowPos(hSetControls[3+i], NULL, S(BTN_X), S(startY + (i * 38)), S(BTN_W), S(30), SWP_NOZORDER);
+    SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
+
+    if (bUpdatePageMode) {
+        SetWindowPos(hLblStatus, NULL, S(BTN_X), S(160), S(BTN_W), S(35), SWP_NOZORDER);
+        SetWindowPos(hLblCurVer, NULL, S(BTN_X), S(200), S(BTN_W), S(30), SWP_NOZORDER);
+        SetWindowPos(hLblNewVer, NULL, S(BTN_X), S(230), S(BTN_W), S(30), SWP_NOZORDER);
+        SetWindowPos(hProgress, NULL, S(BTN_X), S(275), S(BTN_W), S(40), SWP_NOZORDER);
+        SetWindowPos(hBtnDownload, NULL, S(BTN_X), S(320), S(BTN_W), S(60), SWP_NOZORDER);
     }
     
     InvalidateRect(h, NULL, TRUE);
@@ -433,6 +484,155 @@ void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFille
     }
 }
 
+void GetVal(char* src, const char* key, wchar_t* out) {
+    char* p = StrStrA(src, key);
+    if (p && (p = StrChrA(p, '\"'))) {
+        char* e = StrChrA(++p, '\"');
+        if (e) {
+            *e = 0;
+            MultiByteToWideChar(CP_ACP, 0, p, -1, out, 512); 
+            *e = '\"';
+        }
+    }
+}
+
+void PerformUpdateCheck(HWND h) {
+    if (!g_pDownload) { SetWindowTextW(hLblStatus, L"Error: Missing DLL"); return; }
+
+    ShowWindow(hBtnDownload, SW_HIDE);
+    SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+    SetWindowTextW(hLblStatus, L"Checking...");
+    SetWindowTextW(hLblCurVer, L"");
+    SetWindowTextW(hLblNewVer, L"");
+    SetWindowTextW(hProgress, L"Please wait...");
+    UpdateWindow(h);
+
+    if (g_pDelCache) g_pDelCache(UPDATE_CHECK_URL); 
+
+    wchar_t tmp[MAX_PATH], path[MAX_PATH], url[512];
+    GetTempPathW(MAX_PATH, tmp);
+    wsprintfW(path, L"%sQR_v.h", tmp);
+    wsprintfW(url, L"%s?t=%lu", UPDATE_CHECK_URL, GetTickCount());
+
+    HRESULT hr = E_FAIL;
+    for (int i = 0; i < 2; i++) {
+        hr = g_pDownload(NULL, url, path, 0, NULL);
+        if (SUCCEEDED(hr)) break;
+        Sleep(100);
+    }
+
+    if (SUCCEEDED(hr)) {
+        HANDLE hF = CreateFileW(path, GENERIC_READ, 1, NULL, 3, 0, NULL);
+        if (hF != INVALID_HANDLE_VALUE) {
+            char buf[4096] = {0}; DWORD br;
+            ReadFile(hF, buf, 4095, &br, NULL);
+            CloseHandle(hF); DeleteFileW(path);
+            wchar_t ver[32] = {0};
+            GetVal(buf, "VERSION_W", ver);
+            GetVal(buf, "DOWNLOAD_URL", g_downloadUrl);
+            SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            wchar_t cur[64]; wsprintfW(cur, L"Current: %s", VERSION_W);
+            SetWindowTextW(hLblCurVer, cur);
+
+            if (ver[0] == 0 || g_downloadUrl[0] == 0) {
+                SetWindowTextW(hLblStatus, L"Update Error");
+                SetWindowTextW(hProgress, L"Invalid server data.");
+            } 
+            else if (lstrcmpW(ver, VERSION_W) > 0) {
+                SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+                SetWindowTextW(hLblStatus, L"Update Available!");
+                SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+                wchar_t neu[64]; wsprintfW(neu, L"New: %s", ver);
+                SetWindowTextW(hLblNewVer, neu);
+                SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+                SetWindowTextW(hProgress, L"Ready to Download");
+                ShowWindow(hBtnDownload, SW_SHOW);
+                EnableWindow(hBtnDownload, TRUE);
+            } else {
+                SetWindowTextW(hLblStatus, L"You are up to date");
+                SetWindowTextW(hLblNewVer, L""); SetWindowTextW(hProgress, L"");
+            }
+        } else {
+            SetWindowTextW(hLblStatus, L"Check Failed");
+            SetWindowTextW(hProgress, L"Could not read file.");
+        }
+    } else {
+        SetWindowTextW(hLblStatus, L"Connection Error");
+        SetWindowTextW(hProgress, L"Click 'Check Update' to retry");
+    }
+}
+
+void PerformDownload(HWND h) {
+    if (!g_pOpenStream) return;
+
+    EnableWindow(hBtnDownload, FALSE);
+    InvalidateRect(hBtnDownload, NULL, FALSE);
+    UpdateWindow(hBtnDownload);
+    SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+    SetWindowTextW(hLblStatus, L"Starting Download...");
+    SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+    SetWindowTextW(hProgress, L"Initializing...");
+    UpdateWindow(hLblStatus); UpdateWindow(hProgress);
+
+    IStream* pStream = NULL;
+    if (SUCCEEDED(g_pOpenStream(NULL, g_downloadUrl, &pStream, 0, NULL))) {
+        wchar_t tmp[MAX_PATH], newE[MAX_PATH];
+        GetTempPathW(MAX_PATH, tmp);
+        wsprintfW(newE, L"%sQR_Upd.tmp", tmp);
+        
+        HANDLE hOut = CreateFileW(newE, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+        
+        STATSTG stat; pStream->Stat(&stat, STATFLAG_NONAME);
+        DWORD total = stat.cbSize.LowPart;
+        DWORD totalRead = 0, read; char buffer[4096];
+        int lastPct = -1;
+
+        while (true) {
+            pStream->Read(buffer, sizeof(buffer), &read);
+            if (read == 0) break;
+            WriteFile(hOut, buffer, read, &read, NULL);
+            totalRead += read;
+
+            if (total > 0) {
+                int pct = (totalRead * 100) / total;
+                if (pct != lastPct) {
+                    lastPct = pct;
+                    wchar_t progText[128];
+                    wsprintfW(progText, L"Downloading: %d KB / %d KB (%d%%)",
+                        totalRead / 1024, total / 1024, pct);
+                    SetWindowTextW(hProgress, progText);
+                    UpdateWindow(hProgress);
+                }
+            }
+            MSG msg; while(PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+        }
+        CloseHandle(hOut); pStream->Release();
+
+        SetWindowTextW(hLblStatus, L"Installing Update...");
+        SetWindowTextW(hProgress, L"Restarting app...");
+        UpdateWindow(hLblStatus); UpdateWindow(hProgress);
+        Sleep(800);
+
+        wchar_t cur[MAX_PATH], old[MAX_PATH]; GetModuleFileNameW(NULL, cur, MAX_PATH);
+        lstrcpyW(old, cur); PathRemoveFileSpecW(old); PathAppendW(old, L"QuickRotate.old");
+        DeleteFileW(old);
+        
+        if (MoveFileW(cur, old) && MoveFileW(newE, cur)) {
+            ShellExecuteW(NULL, L"open", cur, NULL, NULL, SW_SHOW); ExitProcess(0);
+        } else {
+            MoveFileW(old, cur);
+            SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+            SetWindowTextW(hLblStatus, L"Installation Failed");
+            SetWindowTextW(hProgress, L"Could not replace file.");
+            EnableWindow(hBtnDownload, TRUE);
+        }
+    } else {
+        SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+        SetWindowTextW(hLblStatus, L"Download Failed");
+        EnableWindow(hBtnDownload, TRUE);
+    }
+}
+
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_CREATE: {
@@ -465,8 +665,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
         hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, 390, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP);
 
-        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, BTN_W, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
-
+        int halfW = (BTN_W - 10) / 2;
+        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, halfW, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
+        hSetControls[11] = CreateMyButton(h, L"Check Update", ID_BTN_UPDATE, BTN_X + halfW + 10, 390, halfW, BTN_SH, WS_TABSTOP);
         struct TogData { int idx; LPCWSTR txt; int id; int y; };
         LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Cycle Rotation (Next \u27F3)";
         
@@ -495,9 +696,25 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
         }
 
-        hSetControls[10] = CreateWindowW(L"STATIC", L"Quick Rotate 6.0.6 by ArKT", WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
+        wchar_t verText[32];
+        wsprintfW(verText, L"Quick Rotate %s by ArKT", CURRENT_VER);
+        hSetControls[10] = CreateWindowW(L"STATIC", verText, WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
             S(BTN_X), S(435), S(BTN_W), S(25), h, NULL, GetModuleHandle(NULL), NULL);
         SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+        
+        hLblStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+
+        hLblCurVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+
+        hLblNewVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+
+        hProgress = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+
+        hBtnDownload = CreateMyButton(h, L"Download && Install", ID_BTN_DOWNLOAD, 0, 0, 0, 0, BS_PUSHBUTTON);
 
         nid.cbSize = sizeof(NOTIFYICONDATAW); nid.hWnd = h; nid.uID = 1001; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP; nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = hIconSm;
@@ -525,7 +742,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_CTLCOLORSTATIC: {
         HDC hdcStatic = (HDC)w; SetBkColor(hdcStatic, 0xF0F0F0); SetBkMode(hdcStatic, TRANSPARENT); 
-        return (INT_PTR)GetStockObject(NULL_BRUSH);
+        return (INT_PTR)g_hBrBkgnd;
     }
 
     case WM_MEASUREITEM: {
@@ -583,7 +800,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     Pen fp(Color(150, 150, 150), 1); fp.SetDashStyle(DashStyleDot);
                     g->DrawRectangle(&fp, rB);
                 }
-            } else if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT) {
+            } else if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT && btnId != ID_BTN_DOWNLOAD) {
                 bool isChecked = false;
                 if (btnId == ID_CHK_TRAY) isChecked = bCloseToTray;
                 else if (btnId == ID_CHK_AUTOSTART) isChecked = bAutoStart;
@@ -609,15 +826,22 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             } else {
                 Color bg, txt;
                 bool active = (btnId - 100 == currentScreenRot) && (btnId < 200);
+                bool disabled = (p->itemState & ODS_DISABLED);
 
-                if (btnId == ID_BTN_SETTINGS || btnId == ID_BTN_BACK) {
-                    if (pressed) { bg = Color(60, 60, 60); txt = Color(255, 255, 255); }
+                if (btnId == ID_BTN_SETTINGS || btnId == ID_BTN_BACK || btnId == ID_BTN_UPDATE || btnId == ID_BTN_DOWNLOAD) {
+                    if (disabled) { bg = Color(200, 200, 200); txt = Color(160, 160, 160); }
+                    else if (pressed) { bg = Color(60, 60, 60); txt = Color(255, 255, 255); }
                     else if (hovered) { bg = Color(120, 120, 120); txt = Color(255, 255, 255); }
                     else { bg = Color(80, 80, 80); txt = Color(255, 255, 255); }
                 } else {
                     if (active && !hovered) { bg = Color(255, 255, 255); txt = Color(0, 120, 215); }
                     else if (pressed) { bg = Color(0, 80, 160); txt = Color(255, 255, 255); }
                     else if (hovered) { bg = Color(135, 206, 250); txt = Color(0, 60, 140); }
+                    else { bg = Color(0, 120, 215); txt = Color(255, 255, 255); }
+                }
+                if (btnId == ID_BTN_DOWNLOAD && !disabled) {
+                    if (pressed) { bg = Color(0, 80, 160); txt = Color(255, 255, 255); }
+                    else if (hovered) { bg = Color(0, 100, 200); txt = Color(255, 255, 255); }
                     else { bg = Color(0, 120, 215); txt = Color(255, 255, 255); }
                 }
 
@@ -637,9 +861,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
-                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, txt.ToCOLORREF()); SelectObject(buf.hMemDC, hFontBold);
+                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, txt.ToCOLORREF());
+                if (btnId == ID_BTN_DOWNLOAD) SelectObject(buf.hMemDC, hFontTitle);
+                else SelectObject(buf.hMemDC, hFontBold);
                 RECT tr = {0, 0, w, h};
-                if (btnId >= 200 || btnId == ID_BTN_SETTINGS) DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                if (btnId >= 200 || btnId == ID_BTN_SETTINGS || btnId == ID_BTN_DOWNLOAD || btnId == ID_BTN_UPDATE) {
+                    DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
+                }
                 else {
                     RECT cr = tr; DrawTextW(buf.hMemDC, text, -1, &cr, DT_CALCRECT | DT_CENTER | DT_WORDBREAK);
                     tr.top += (h - (cr.bottom - cr.top)) / 2; DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_WORDBREAK);
@@ -667,7 +895,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 bool chk = (p->itemState & ODS_CHECKED);
                 DrawProIcon(*g, p->itemID, S(12), (h - S(16)) / 2, S(16), chk ? Color(0, 120, 215) : Color(150, 150, 150), chk);
 
-                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontMenu);
+                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontHeader);
                 RECT tr = {S(40), 0, w, h}; DrawTextW(buf.hMemDC, (LPCWSTR)p->itemData, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
             }
         }
@@ -680,8 +908,12 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SetRot((id - 100) * 90);
             InvalidateRect(h, NULL, FALSE); }
         else if (id == 105) { SetRot(-1); InvalidateRect(h, NULL, FALSE); }
-        else if (id == ID_BTN_SETTINGS || id == ID_BTN_BACK) { ToggleViewMode(h); }
-        
+        else if (id == ID_BTN_SETTINGS || id == ID_BTN_BACK) {
+            if (id == ID_BTN_BACK && bUpdatePageMode) ToggleUpdateView(h, false);
+            else ToggleViewMode(h);
+        }
+        else if (id == ID_BTN_UPDATE) { ToggleUpdateView(h, true); }
+        else if (id == ID_BTN_DOWNLOAD) { PerformDownload(h); }
         else if (id == ID_CHK_TRAY) {
             bCloseToTray = !bCloseToTray;
             SaveSettings(); 
@@ -753,7 +985,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_DESTROY:
         Shell_NotifyIconW(NIM_DELETE, &nid);
         DeleteObject(hFontBold); DeleteObject(hFontNormal); DeleteObject(hFontHeader);
-        DeleteObject(hFontMenu);
+        DeleteObject(g_hBrBkgnd);
         PostQuitMessage(0);
         return 0;
     
@@ -788,6 +1020,14 @@ bool IsArg(LPWSTR arg, const wchar_t* check) {
 
 extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     CoInitialize(NULL);
+    g_hUrlMon = LoadLibraryW(L"urlmon.dll");
+    if (g_hUrlMon) {
+        g_pDownload = (tUD)GetProcAddress(g_hUrlMon, "URLDownloadToFileW");
+        g_pOpenStream = (tOS)GetProcAddress(g_hUrlMon, "URLOpenBlockingStreamW");
+    }
+    g_hWinInet = LoadLibraryW(L"wininet.dll");
+    if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
+    g_hBrBkgnd = CreateSolidBrush(0xF0F0F0);
     InitSettingsPath();
 
     if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
@@ -796,13 +1036,20 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
     LoadSettings();
 
+    wchar_t exePath[MAX_PATH], oldPath[MAX_PATH];
+    GetModuleFileNameW(NULL, exePath, MAX_PATH);
+    lstrcpyW(oldPath, exePath);
+    PathRemoveFileSpecW(oldPath);
+    PathAppendW(oldPath, L"QuickRotate.old");
+    DeleteFileW(oldPath);
+
     wchar_t safePath[MAX_PATH];
     if (GetStableExePath(safePath)) {
         wchar_t currentPath[MAX_PATH];
         GetModuleFileNameW(NULL, currentPath, MAX_PATH);
         if (lstrcmpiW(currentPath, safePath) != 0) {
             if (GetFileAttributesW(safePath) != INVALID_FILE_ATTRIBUTES) {
-                 bUpdateMode = true;
+                bUpdateMode = true;
             }
         }
     }
@@ -968,6 +1215,8 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
     GdiplusShutdown(gdiplusToken);
     ReleaseMutex(hMutex);
+    if (g_hUrlMon) FreeLibrary(g_hUrlMon);
+    if (g_hWinInet) FreeLibrary(g_hWinInet);
     CoUninitialize(); 
     ExitProcess(0);
     return 0;
