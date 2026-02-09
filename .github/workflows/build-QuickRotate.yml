@@ -33,7 +33,7 @@ jobs:
         shell: msys2 {0}
         run: windres QuickRotate.rc -O coff -o QuickRotate_res.o
 
-      - name: Compile Optimized Exe
+      - name: Compile QuickRotate Exe
         shell: msys2 {0}
         run: |
           g++ QuickRotate.cpp QuickRotate_res.o -o QuickRotate.exe -static -nostartfiles -e _WinMain@16 -Os -s -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer "-Wl,--gc-sections" -lgdi32 -luser32 -lgdiplus -lshlwapi -lshell32 -lole32 -luuid -ladvapi32 -mwindows
@@ -51,10 +51,9 @@ jobs:
         env:
           CERT_PASS: ${{ secrets.SIGNING_PASS }}
         run: |
-          Copy-Item "QuickRotate.exe" -Destination "QuickRotate_Signed.exe"
           $signtool = Get-ChildItem -Path "C:\Program Files (x86)\Windows Kits" -Recurse -Filter "signtool.exe" | Select-Object -First 1
           if (-not $signtool) { Write-Error "Signtool not found!"; exit 1 }
-          & $signtool.FullName sign /f "certificate.pfx" /p "$env:CERT_PASS" /fd SHA256 /d "Quick Rotate by ArKT-7" /du "https://github.com/ArKT-7" /tr http://timestamp.digicert.com /td sha256 "QuickRotate_Signed.exe"
+          & $signtool.FullName sign /f "certificate.pfx" /p "$env:CERT_PASS" /fd SHA256 /d "Quick Rotate by ArKT-7" /du "https://github.com/ArKT-7" /tr http://timestamp.digicert.com /td sha256 "QuickRotate.exe"
           Remove-Item "certificate.pfx" -Force
 
       - name: Get Version & Date
@@ -75,25 +74,41 @@ jobs:
         run: |
           $repo = "${{ github.repository }}"
           $ver = "${{ env.APP_VERSION }}"
+          $file = "QuickRotate.exe"
+          $sizeBytes = (Get-Item $file).Length
+          $sizeKB = "{0:N2} KB" -f ($sizeBytes / 1KB)
+          $md5    = (Get-FileHash $file -Algorithm MD5).Hash
+          $sha1   = (Get-FileHash $file -Algorithm SHA1).Hash
+          $sha256 = (Get-FileHash $file -Algorithm SHA256).Hash
           
           $body = @"
-          ## ⚡ Quick Rotate v$ver
+          # ⚡ Quick Rotate v$ver
+
+          ---
 
           - **Build Date:** ``${{ env.BUILD_DATE }}``
           - **Build Time:** ``${{ env.BUILD_TIME }}``
+          - **File Size:** ``$sizeKB``
+
+          ---
+          
+          ## [``📥 Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
 
           ---
 
-          ### 📦 Downloads
+          ### 🔒 Integrity Checksums
 
-          - [**``QuickRotate.exe``**](https://github.com/$repo/releases/download/v$ver/QuickRotate.exe)
-          - [**``QuickRotate_signed.exe``**](https://github.com/$repo/releases/download/v$ver/QuickRotate_Signed.exe)
-
+          | Algorithm | Hash |
+          | :--- | :--- |
+          | **MD5** | ``$md5`` |
+          | **SHA-1** | ``$sha1`` |
+          | **SHA-256** | ``$sha256`` |
+          
           ---
 
-          ### 🚀 Usage & Info
+          ### [``📖 View Readme & Usage Guide 🙂‍↔️``](https://github.com/$repo/blob/main/README.md#-usage-guide)
 
-          - [**``Open Readme and read 🙂‍↔️``**](https://github.com/$repo/blob/main/README.md#-usage-guide)
+          ---
           "@
           
           [System.IO.File]::WriteAllText("release_notes.md", $body)
@@ -106,4 +121,3 @@ jobs:
           body_path: release_notes.md
           files: |
             QuickRotate.exe
-            QuickRotate_Signed.exe
