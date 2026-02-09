@@ -696,11 +696,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
         }
 
-        wchar_t verText[32];
-        wsprintfW(verText, L"Quick Rotate %s by ArKT", CURRENT_VER);
-        hSetControls[10] = CreateWindowW(L"STATIC", verText, WS_CHILD | SS_CENTER | SS_CENTERIMAGE, 
-            S(BTN_X), S(435), S(BTN_W), S(25), h, NULL, GetModuleHandle(NULL), NULL);
-        SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+        hSetControls[10] = NULL;
         
         hLblStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
         SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
@@ -1002,6 +998,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             MoveToEx(dc, S(20), S(145), NULL);
             LineTo(dc, S(WIN_W) - S(32), S(145));
             DeleteObject(hPen);
+            SetBkMode(dc, TRANSPARENT);
+            SelectObject(dc, hFontHeader); 
+            SetTextColor(dc, RGB(128, 128, 128)); 
+            wchar_t verText[64];
+            wsprintfW(verText, L"Quick Rotate %s by ArKT", CURRENT_VER);
+            RECT tr = {S(BTN_X), S(430), S(BTN_X) + S(BTN_W), S(480)};
+            DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
         EndPaint(h, &ps);
         return 0;
