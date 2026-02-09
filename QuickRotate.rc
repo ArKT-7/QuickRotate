@@ -39,7 +39,7 @@ BEGIN
             VALUE "LegalCopyright", "Copyright (C) 2026 ArKT-7"
             VALUE "OriginalFilename", "QuickRotate.exe"
             VALUE "ProductName", "Quick Rotate"
-            VALUE "ProductVersion", VERSION_STR
+            VALUE "ProductVersion", VERSION_XML
             VALUE "Comments", "https://github.com/ArKT-7/QuickRotate"
             VALUE "LegalTrademarks", "ArKT-7"
         END
