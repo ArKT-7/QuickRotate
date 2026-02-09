@@ -56,6 +56,13 @@ jobs:
           & $signtool.FullName sign /f "certificate.pfx" /p "$env:CERT_PASS" /fd SHA256 /d "Quick Rotate by ArKT-7" /du "https://github.com/ArKT-7" /tr http://timestamp.digicert.com /td sha256 "QuickRotate.exe"
           Remove-Item "certificate.pfx" -Force
 
+      - name: VirusTotal Scan
+        id: vt
+        uses: crazy-max/ghaction-virustotal@v4
+        with:
+          vt_api_key: ${{ secrets.VT_API_KEY }}
+          files: QuickRotate.exe
+
       - name: Get Version & Date
         id: info
         shell: pwsh
@@ -80,6 +87,12 @@ jobs:
           $md5    = (Get-FileHash $file -Algorithm MD5).Hash
           $sha1   = (Get-FileHash $file -Algorithm SHA1).Hash
           $sha256 = (Get-FileHash $file -Algorithm SHA256).Hash
+          $raw_vt = "${{ steps.vt.outputs.analysis }}"
+          if ($raw_vt.Contains('=')) {
+            $vt_url = $raw_vt.Substring($raw_vt.IndexOf('=') + 1)
+          } else {
+            $vt_url = $raw_vt
+          }
           
           $body = @"
           # ⚡ Quick Rotate v$ver
@@ -89,6 +102,7 @@ jobs:
           - **Build Date:** ``${{ env.BUILD_DATE }}``
           - **Build Time:** ``${{ env.BUILD_TIME }}``
           - **File Size:** ``$sizeKB``
+          - **VirusTotal:** [``Security Report``]($vt_url)
 
           ---
           
