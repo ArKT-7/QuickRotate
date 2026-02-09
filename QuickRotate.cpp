@@ -527,22 +527,28 @@ void PerformUpdateCheck(HWND h) {
             char buf[4096] = {0}; DWORD br;
             ReadFile(hF, buf, 4095, &br, NULL);
             CloseHandle(hF); DeleteFileW(path);
-            wchar_t ver[32] = {0};
+            wchar_t ver[32] = {0}, rbS[8] = {0};
             GetVal(buf, "VERSION_W", ver);
             GetVal(buf, "DOWNLOAD_URL", g_downloadUrl);
+            GetVal(buf, "BUILD", rbS);
+            int remB = _wtoi(rbS);
+            int locB = atoi(BUILD); 
             SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
             wchar_t cur[64]; wsprintfW(cur, L"Current: %s", VERSION_W);
             SetWindowTextW(hLblCurVer, cur);
+            bool isNewer = (lstrcmpW(ver, VERSION_W) > 0) || (lstrcmpW(ver, VERSION_W) == 0 && remB > locB);
 
             if (ver[0] == 0 || g_downloadUrl[0] == 0) {
                 SetWindowTextW(hLblStatus, L"Update Error");
                 SetWindowTextW(hProgress, L"Invalid server data.");
             } 
-            else if (lstrcmpW(ver, VERSION_W) > 0) {
+            else if (isNewer) {
                 SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
                 SetWindowTextW(hLblStatus, L"Update Available!");
                 SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
-                wchar_t neu[64]; wsprintfW(neu, L"New: %s", ver);
+                wchar_t neu[64]; 
+                if (remB > locB && lstrcmpW(ver, VERSION_W) == 0) wsprintfW(neu, L"New: %s (Rev %d)", ver, remB);
+                else wsprintfW(neu, L"New: %s", ver);
                 SetWindowTextW(hLblNewVer, neu);
                 SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
                 SetWindowTextW(hProgress, L"Ready to Download");
