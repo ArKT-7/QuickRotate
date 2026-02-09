@@ -1,5 +1,5 @@
 /*
-  Quick Rotate V6 by ArKT | Modern Display Orientation Tool/Utility for Windows
+  Quick Rotate v6.1 by ArKT | Modern Display Orientation Tool/Utility for Windows
   Copyright (c) 2026 ArKT-7 (https://github.com/ArKT-7/QuickRotate)
   Build: windres QuickRotate.rc -O coff -o QuickRotate_res.o; g++ QuickRotate.cpp QuickRotate_res.o -o QuickRotate.exe -static -nostartfiles -e _WinMain@16 -Os -s -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer "-Wl,--gc-sections" -lgdi32 -luser32 -lgdiplus -lshlwapi -lshell32 -lole32 -luuid -ladvapi32 -mwindows
 */
@@ -14,8 +14,10 @@
 #include <objbase.h>
 #include <shellapi.h>
 #include <shlobj.h>
-#include <shlwapi.h> 
+#include <shlwapi.h>
 #include <gdiplus.h>
+#include <stdlib.h>
+#include <wchar.h>
 
 #ifndef ODS_NOFOCUSRECT
 #define ODS_NOFOCUSRECT 0x0200
@@ -67,7 +69,7 @@ using namespace Gdiplus;
 #define ID_SC_FLIPPORT    4004
 #define ID_SC_APP         4005
 
-const wchar_t* AppTitle = L"Quick Rotate V6";
+const wchar_t* AppTitle = L"Quick Rotate v6.1";
 const wchar_t* AppClass = L"ArKT_QuickRotate";
 
 HFONT hFontBold = NULL;
@@ -490,10 +492,27 @@ void GetVal(char* src, const char* key, wchar_t* out) {
         char* e = StrChrA(++p, '\"');
         if (e) {
             *e = 0;
-            MultiByteToWideChar(CP_ACP, 0, p, -1, out, 512); 
+            MultiByteToWideChar(CP_UTF8, 0, p, -1, out, 512);
             *e = '\"';
         }
     }
+}
+
+int ParseVerNum(const wchar_t*& p) {
+    int v = 0;
+    while (*p >= L'0' && *p <= L'9') { v = v * 10 + (*p - L'0'); p++; }
+    if (*p == L'.') p++;
+    return v;
+}
+
+int CompareVersion(const wchar_t* v1, const wchar_t* v2) {
+    const wchar_t *p1 = v1, *p2 = v2;
+    while (*p1 || *p2) {
+        int n1 = ParseVerNum(p1);
+        int n2 = ParseVerNum(p2);
+        if (n1 != n2) return n1 - n2;
+    }
+    return 0;
 }
 
 void PerformUpdateCheck(HWND h) {
@@ -531,12 +550,13 @@ void PerformUpdateCheck(HWND h) {
             GetVal(buf, "VERSION_W", ver);
             GetVal(buf, "DOWNLOAD_URL", g_downloadUrl);
             GetVal(buf, "BUILD", rbS);
-            int remB = _wtoi(rbS);
-            int locB = atoi(BUILD); 
+            int remB = (int)wcstol(rbS, NULL, 10);
+            int locB = atoi(BUILD);
             SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
             wchar_t cur[64]; wsprintfW(cur, L"Current: %s", VERSION_W);
             SetWindowTextW(hLblCurVer, cur);
-            bool isNewer = (lstrcmpW(ver, VERSION_W) > 0) || (lstrcmpW(ver, VERSION_W) == 0 && remB > locB);
+            int verDiff = CompareVersion(ver, VERSION_W);
+            bool isNewer = (verDiff > 0) || (verDiff == 0 && remB > locB);
 
             if (ver[0] == 0 || g_downloadUrl[0] == 0) {
                 SetWindowTextW(hLblStatus, L"Update Error");
@@ -547,7 +567,7 @@ void PerformUpdateCheck(HWND h) {
                 SetWindowTextW(hLblStatus, L"Update Available!");
                 SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
                 wchar_t neu[64]; 
-                if (remB > locB && lstrcmpW(ver, VERSION_W) == 0) wsprintfW(neu, L"New: %s (Rev %d)", ver, remB);
+                if (verDiff == 0 && remB > locB) wsprintfW(neu, L"New: %s (Rev %d)", ver, remB);
                 else wsprintfW(neu, L"New: %s", ver);
                 SetWindowTextW(hLblNewVer, neu);
                 SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);

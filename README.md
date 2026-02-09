@@ -79,4 +79,4 @@ If you find my projects helpful, consider supporting my work! Your contributions
 
 ---
 
-### 🎉 Efficiency meets elegance with Quick Rotate V6!
+### 🎉 Efficiency meets elegance with Quick Rotate v6.1!
