@@ -1049,6 +1049,10 @@ bool IsArg(LPWSTR arg, const wchar_t* check) {
 
 extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     CoInitialize(NULL);
+
+    GdiplusStartupInput gdiplusStartupInput;
+    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
+
     g_hUrlMon = LoadLibraryW(L"urlmon.dll");
     if (g_hUrlMon) {
         g_pDownload = (tUD)GetProcAddress(g_hUrlMon, "URLDownloadToFileW");
@@ -1099,21 +1103,18 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             if (IsArg(cmd, L"next") || IsArg(cmd, L"rotate")) {
                 SetRot(-1);
                 GdiplusShutdown(gdiplusToken);
+                CoUninitialize();
                 ExitProcess(0);
             }
 
-            int a = 0;
-            bool valid = true;
-            LPWSTR t = cmd;
-            while (*t) {
-                if (*t < L'0' || *t > L'9') { valid = false; break; }
-                a = a * 10 + (*t - L'0');
-                t++;
-            }
+            wchar_t* endPtr;
+            int a = (int)wcstol(cmd, &endPtr, 10);
+            bool isValidNum = (cmd != endPtr);
 
-            if (valid && (a == 0 || a == 90 || a == 180 || a == 270)) {
+            if (isValidNum && (a == 0 || a == 90 || a == 180 || a == 270)) {
                 SetRot(a);
                 GdiplusShutdown(gdiplusToken);
+                CoUninitialize();
                 ExitProcess(0);
             } 
             
@@ -1137,6 +1138,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             wsprintfW(title, L" Error or Info? : %s", AppTitle);
             MessageBoxW(NULL, msg, title, MB_OK | MB_ICONINFORMATION);
             GdiplusShutdown(gdiplusToken);
+            CoUninitialize();
             ExitProcess(0);
         }
     }
@@ -1156,6 +1158,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                     PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
                     SetForegroundWindow(hExisting);
                 }
+                GdiplusShutdown(gdiplusToken);
                 CoUninitialize(); 
                 ExitProcess(0); 
             }
@@ -1166,9 +1169,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         wchar_t dummy[MAX_PATH];
         EnsureInstalled(dummy, false);
     }
-
-    GdiplusStartupInput gdiplusStartupInput;
-    GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
     int wSmall = GetSystemMetrics(SM_CXSMICON);
     int hSmall = GetSystemMetrics(SM_CYSMICON);
