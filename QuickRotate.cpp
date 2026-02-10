@@ -262,6 +262,27 @@ void SaveSettings() {
     WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", bTrayToggleLP ? L"1" : L"0", iniPath);
 }
 
+struct MonData {
+    HMONITOR hTarget;
+    int foundIndex;
+    int counter;
+};
+
+BOOL CALLBACK MonEnumProc(HMONITOR hMon, HDC, LPRECT, LPARAM lParam) {
+    MonData* p = (MonData*)lParam;
+    p->counter++;
+    if (hMon == p->hTarget) {
+        p->foundIndex = p->counter;
+    }
+    return TRUE;
+}
+
+int GetLogicalMonitorIndex(HMONITOR hTarget) {
+    MonData data = { hTarget, 0, 0 };
+    EnumDisplayMonitors(NULL, NULL, MonEnumProc, (LPARAM)&data);
+    return (data.foundIndex > 0) ? data.foundIndex : 1;
+}
+
 void GetCurrentDeviceName(wchar_t* deviceName) {
     deviceName[0] = 0;
     HMONITOR hMon = NULL;
@@ -430,42 +451,49 @@ void ToggleViewMode(HWND h) {
     }
 }
 
+HFONT MakeFont(int size, int weight) { 
+    return CreateFontW(S(size),0,0,0,weight,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI"); 
+}
+
 void RecreateFonts() {
     if (hFontTitle) DeleteObject(hFontTitle);
+    if (hFontBold) DeleteObject(hFontBold);
+    if (hFontNormal) DeleteObject(hFontNormal);
+    if (hFontHeader) DeleteObject(hFontHeader);
     
-    hFontBold = CreateFontW(S(21),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
-    hFontNormal = CreateFontW(S(17),0,0,0,FW_NORMAL,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
-    hFontHeader = CreateFontW(S(19),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
-    hFontTitle = CreateFontW(S(27),0,0,0,FW_BOLD,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI");
+    hFontBold   = MakeFont(21, FW_BOLD);
+    hFontNormal = MakeFont(17, FW_NORMAL);
+    hFontHeader = MakeFont(19, FW_BOLD);
+    hFontTitle  = MakeFont(27, FW_BOLD);
 }
 
 void UpdateLayout(HWND h) {
     RecreateFonts();
 
-    for (int i = 0; i < 5; i++) {
-        SetWindowPos(hBtnRot[i], NULL, S(BTN_X), S(20 + (i * 75)), S(BTN_W), S(BTN_H), SWP_NOZORDER);
-    }
-    SetWindowPos(hBtnSettings, NULL, S(BTN_X), S(390), S(BTN_W), S(BTN_SH), SWP_NOZORDER);
+    auto mv = [](HWND w, int y, int h, int wd = BTN_W, int x = BTN_X) { 
+        SetWindowPos(w, NULL, S(x), S(y), S(wd), S(h), SWP_NOZORDER); 
+    };
 
-    int halfW = (BTN_W - 10) / 2;
-    SetWindowPos(hSetControls[0], NULL, S(BTN_X), S(390), S(halfW), S(BTN_SH), SWP_NOZORDER);
-    SetWindowPos(hSetControls[11], NULL, S(BTN_X + halfW + 10), S(390), S(halfW), S(BTN_SH), SWP_NOZORDER);
+    for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * 75), BTN_H);
+    mv(hBtnSettings, 390, BTN_SH);
+    int half = (BTN_W - 10) / 2;
+    mv(hSetControls[0], 390, BTN_SH, half);
+    mv(hSetControls[11], 390, BTN_SH, half, BTN_X + half + 10);
 
-    SetWindowPos(hSetControls[1], NULL, S(BTN_X), S(20), S(BTN_W), S(30), SWP_NOZORDER);
-    SetWindowPos(hSetControls[2], NULL, S(BTN_X), S(60), S(BTN_W), S(30), SWP_NOZORDER);
-    SetWindowPos(hSetControls[8], NULL, S(BTN_X), S(100), S(BTN_W), S(30), SWP_NOZORDER);
-    SetWindowPos(hSetControls[9], NULL, S(BTN_X), S(160), S(BTN_W), S(30), SWP_NOZORDER);
+    mv(hSetControls[1], 20, 30);
+    mv(hSetControls[2], 60, 30);
+    mv(hSetControls[8], 100, 30);
+    mv(hSetControls[9], 160, 30);
 
-    int startY = 198;
-    for (int i = 0; i < 5; i++) SetWindowPos(hSetControls[3+i], NULL, S(BTN_X), S(startY + (i * 38)), S(BTN_W), S(30), SWP_NOZORDER);
-    SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
+    for (int i = 0; i < 5; i++) mv(hSetControls[3+i], 198 + (i * 38), 30);
+    mv(hSetControls[10], 426, 25);
 
     if (bUpdatePageMode) {
-        SetWindowPos(hLblStatus, NULL, S(BTN_X), S(160), S(BTN_W), S(35), SWP_NOZORDER);
-        SetWindowPos(hLblCurVer, NULL, S(BTN_X), S(200), S(BTN_W), S(30), SWP_NOZORDER);
-        SetWindowPos(hLblNewVer, NULL, S(BTN_X), S(230), S(BTN_W), S(30), SWP_NOZORDER);
-        SetWindowPos(hProgress, NULL, S(BTN_X), S(275), S(BTN_W), S(40), SWP_NOZORDER);
-        SetWindowPos(hBtnDownload, NULL, S(BTN_X), S(320), S(BTN_W), S(60), SWP_NOZORDER);
+        mv(hLblStatus, 160, 35);
+        mv(hLblCurVer, 200, 30);
+        mv(hLblNewVer, 230, 30);
+        mv(hProgress, 275, 40);
+        mv(hBtnDownload, 320, 60);
     }
     
     InvalidateRect(h, NULL, TRUE);
@@ -1088,20 +1116,28 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         HBRUSH bg = CreateSolidBrush(0xF0F0F0);
         FillRect(dc, &ps.rcPaint, bg);
         DeleteObject(bg);
+        SetBkMode(dc, TRANSPARENT);
+        SelectObject(dc, hFontHeader);
+        SetTextColor(dc, RGB(160, 160, 160));
 
         if (bSettingsMode) {
-            HPEN hPen = CreatePen(PS_SOLID, S(2), RGB(180, 180, 180));
+            HPEN hPen = CreatePen(PS_SOLID, S(2), RGB(200, 200, 200));
             SelectObject(dc, hPen);
             MoveToEx(dc, S(20), S(145), NULL);
             LineTo(dc, S(WIN_W) - S(32), S(145));
             DeleteObject(hPen);
-            SetBkMode(dc, TRANSPARENT);
-            SelectObject(dc, hFontHeader); 
-            SetTextColor(dc, RGB(128, 128, 128)); 
             wchar_t verText[64];
             wsprintfW(verText, L"Quick Rotate %s by ArKT", CURRENT_VER);
             RECT tr = {S(BTN_X), S(430), S(BTN_X) + S(BTN_W), S(480)};
             DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
+        } 
+        else if (!bUpdatePageMode) {
+            HMONITOR hMon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+            int monNum = GetLogicalMonitorIndex(hMon);
+            wchar_t statusText[64];
+            wsprintfW(statusText, L"Active Monitor: %d", monNum);
+            RECT tr = {0, S(430), S(WIN_W), S(480)}; 
+            DrawTextW(dc, statusText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
         EndPaint(h, &ps);
         return 0;
