@@ -106,7 +106,7 @@ jobs:
 
           ---
           
-          ## [``📥 Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
+          ## <a href="https://github.com/$repo/releases/download/v$ver/$file"><img src="https://github.com/$repo/blob/main/icon.ico" width="36" height="36" align="absmiddle"></a> [``Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
 
           ---
 
