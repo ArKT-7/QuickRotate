@@ -691,7 +691,7 @@ void PerformDownload(HWND h) {
 void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
     MONITORINFO mi = {sizeof(mi)};
     if (!GetMonitorInfoW(hMon, &mi)) return;
-    SetWindowPos(h, NULL, mi.rcWork.left, mi.rcWork.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    SetWindowPos(h, NULL, mi.rcWork.left, mi.rcWork.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
     int w = S(WIN_W);
     int height = S(WIN_H);
     int monW = mi.rcWork.right - mi.rcWork.left;
@@ -703,6 +703,8 @@ void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
 
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
+    case WM_ERASEBKGND:
+        return 1;
     case WM_CREATE: {
         HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
         if (hUser32) {
@@ -1252,7 +1254,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     wc.lpfnWndProc = WndProc;
     wc.lpszClassName = AppClass;
     wc.hCursor = LoadCursorW(NULL, (LPCWSTR)IDC_ARROW);
-    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW+1);
+    wc.hbrBackground = g_hBrBkgnd;
     wc.hIcon = hIconBig;
     wc.hIconSm = hIconSm;
     RegisterClassExW(&wc);
