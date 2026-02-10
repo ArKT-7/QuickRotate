@@ -266,7 +266,7 @@ void GetCurrentDeviceName(wchar_t* deviceName) {
     deviceName[0] = 0;
     HMONITOR hMon = NULL;
 
-    if (hMainWnd) {
+    if (hMainWnd && IsWindowVisible(hMainWnd)) {
         hMon = MonitorFromWindow(hMainWnd, MONITOR_DEFAULTTONEAREST);
     } else {
         POINT pt;
@@ -688,6 +688,19 @@ void PerformDownload(HWND h) {
     }
 }
 
+void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
+    MONITORINFO mi = {sizeof(mi)};
+    if (!GetMonitorInfoW(hMon, &mi)) return;
+    SetWindowPos(h, NULL, mi.rcWork.left, mi.rcWork.top, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+    int w = S(WIN_W);
+    int height = S(WIN_H);
+    int monW = mi.rcWork.right - mi.rcWork.left;
+    int monH = mi.rcWork.bottom - mi.rcWork.top;
+    int x = mi.rcWork.left + (monW - w) / 2;
+    int y = mi.rcWork.top + (monH - height) / 2;
+    SetWindowPos(h, HWND_TOPMOST, x, y, 0, 0, SWP_NOSIZE);
+}
+
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_CREATE: {
@@ -798,6 +811,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_DISPLAYCHANGE: {
         UpdateCurrentRotation();
+        if (IsWindowVisible(h)) {
+            HMONITOR hMon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+            MoveToMonitorCenter(h, hMon);
+        }
         InvalidateRect(h, NULL, FALSE);
         return 0;
     }
@@ -1000,7 +1017,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             InvalidateRect((HWND)l, NULL, FALSE);
         }
 
-        else if (id == ID_TRAY_RESTORE) { ShowWindow(h, SW_RESTORE); SetForegroundWindow(h); }
+        else if (id == ID_TRAY_RESTORE) { 
+            POINT pt; GetCursorPos(&pt);
+            HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            MoveToMonitorCenter(h, hMon);
+            ShowWindow(h, SW_RESTORE);
+            SetForegroundWindow(h);
+        }
         else if (id == ID_TRAY_EXIT) { Shell_NotifyIconW(NIM_DELETE, &nid); DestroyWindow(h); }
         return 0;
     }
@@ -1040,7 +1063,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
             SetForegroundWindow(h); TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, p.x, p.y, 0, h, NULL); DestroyMenu(hMenu);
         }
-        else if (l == WM_LBUTTONDBLCLK) { ShowWindow(h, SW_SHOW); SetForegroundWindow(h); }
+        else if (l == WM_LBUTTONDBLCLK) { 
+            POINT pt; GetCursorPos(&pt);
+            HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+            MoveToMonitorCenter(h, hMon);
+            ShowWindow(h, SW_RESTORE);
+            SetForegroundWindow(h);
+        }
         return 0;
     }
 
@@ -1251,6 +1280,9 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     
     Shell_NotifyIconW(NIM_ADD, &nid);
     if (!bSilentStart) {
+        POINT pt; GetCursorPos(&pt);
+        HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+        MoveToMonitorCenter(hMainWnd, hMon);
         ShowWindow(hMainWnd, SW_SHOW);
     }
     
