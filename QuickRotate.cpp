@@ -115,6 +115,7 @@ typedef BOOL    (WINAPI *tDC)(LPCWSTR);
 tUD g_pDownload = NULL;
 tOS g_pOpenStream = NULL;
 tDC g_pDelCache = NULL;
+int g_currentMonNum = 1;
 
 const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
 const wchar_t* CURRENT_VER = VERSION_W;
@@ -747,7 +748,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         g_dpi = GetDeviceCaps(hdc, LOGPIXELSX);
         ReleaseDC(h, hdc);
         UpdateCurrentRotation();
-        RecreateFonts(); 
+        RecreateFonts();
+        g_currentMonNum = GetLogicalMonitorIndex(MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST));
 
         LPCWSTR txt[] = {
             L"Landscape\n(Standard)",
@@ -834,6 +836,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (hNewMon != hLastMon) {
             hLastMon = hNewMon;
             UpdateCurrentRotation();
+            g_currentMonNum = GetLogicalMonitorIndex(hNewMon);
             InvalidateRect(h, NULL, FALSE);
         }
         return 0;
@@ -844,6 +847,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (IsWindowVisible(h)) {
             HMONITOR hMon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
             MoveToMonitorCenter(h, hMon);
+            g_currentMonNum = GetLogicalMonitorIndex(hMon);
         }
         InvalidateRect(h, NULL, FALSE);
         return 0;
@@ -1132,10 +1136,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         } 
         else if (!bUpdatePageMode) {
-            HMONITOR hMon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
-            int monNum = GetLogicalMonitorIndex(hMon);
             wchar_t statusText[64];
-            wsprintfW(statusText, L"Active Monitor: %d", monNum);
+            wsprintfW(statusText, L"Active Monitor: %d", g_currentMonNum);
             RECT tr = {0, S(430), S(WIN_W), S(480)}; 
             DrawTextW(dc, statusText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
