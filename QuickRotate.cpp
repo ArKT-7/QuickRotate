@@ -262,10 +262,31 @@ void SaveSettings() {
     WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", bTrayToggleLP ? L"1" : L"0", iniPath);
 }
 
-bool IsNativePortrait() {
+void GetCurrentDeviceName(wchar_t* deviceName) {
+    deviceName[0] = 0;
+    HMONITOR hMon = NULL;
+
+    if (hMainWnd) {
+        hMon = MonitorFromWindow(hMainWnd, MONITOR_DEFAULTTONEAREST);
+    } else {
+        POINT pt;
+        GetCursorPos(&pt);
+        hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
+    }
+
+    if (hMon) {
+        MONITORINFOEXW mi;
+        mi.cbSize = sizeof(mi);
+        if (GetMonitorInfoW(hMon, (LPMONITORINFO)&mi)) {
+            lstrcpyW(deviceName, mi.szDevice);
+        }
+    }
+}
+
+bool IsNativePortrait(const wchar_t* device) {
     DEVMODEW dm = {0};
     dm.dmSize = sizeof(dm);
-    if (EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &dm)) {
+    if (EnumDisplaySettingsW(device && device[0] ? device : NULL, ENUM_CURRENT_SETTINGS, &dm)) {
         int w = dm.dmPelsWidth;
         int h = dm.dmPelsHeight;
         if (dm.dmDisplayOrientation == DMDO_90 || dm.dmDisplayOrientation == DMDO_270) {
@@ -277,10 +298,14 @@ bool IsNativePortrait() {
 }
 
 void UpdateCurrentRotation() {
+    wchar_t dev[32];
+    GetCurrentDeviceName(dev);
+    const wchar_t* pDev = dev[0] ? dev : NULL;
+
     DEVMODEW dm = {0};
     dm.dmSize = sizeof(dm);
-    if (EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &dm)) {
-        if (IsNativePortrait()) {
+    if (EnumDisplaySettingsW(pDev, ENUM_CURRENT_SETTINGS, &dm)) {
+        if (IsNativePortrait(pDev)) {
             currentScreenRot = (dm.dmDisplayOrientation + 1) % 4;
         } else {
             currentScreenRot = dm.dmDisplayOrientation;
@@ -289,16 +314,20 @@ void UpdateCurrentRotation() {
 }
 
 void SetRot(int angle) {
+    wchar_t dev[32];
+    GetCurrentDeviceName(dev);
+    const wchar_t* pDev = dev[0] ? dev : NULL;
+
     DEVMODEW dm = {0};
     dm.dmSize = sizeof(dm);
-    if (EnumDisplaySettingsW(NULL, ENUM_CURRENT_SETTINGS, &dm)) {
+    if (EnumDisplaySettingsW(pDev, ENUM_CURRENT_SETTINGS, &dm)) {
         if (angle == -1) {
             int current = dm.dmDisplayOrientation;
             int next = (current + 3) % 4; 
             angle = next * 90;
         }
         else {
-            if (IsNativePortrait()) {
+            if (IsNativePortrait(pDev)) {
                 int idx = angle / 90;
                 angle = ((idx + 3) % 4) * 90;
             }
@@ -312,8 +341,8 @@ void SetRot(int angle) {
             dm.dmFields = DM_DISPLAYORIENTATION | DM_PELSWIDTH | DM_PELSHEIGHT;
         } else dm.dmFields = DM_DISPLAYORIENTATION;
         dm.dmDisplayOrientation = neu;
-        ChangeDisplaySettingsW(&dm, 0);
-        if (IsNativePortrait()) currentScreenRot = (neu + 1) % 4;
+        ChangeDisplaySettingsExW(pDev, &dm, NULL, 0, NULL);
+        if (IsNativePortrait(pDev)) currentScreenRot = (neu + 1) % 4;
         else currentScreenRot = neu;
     }
 }
@@ -753,6 +782,17 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             prcNewWindow->bottom - prcNewWindow->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
         UpdateLayout(h); 
+        return 0;
+    }
+
+    case WM_MOVE: {
+        static HMONITOR hLastMon = NULL;
+        HMONITOR hNewMon = MonitorFromWindow(h, MONITOR_DEFAULTTONEAREST);
+        if (hNewMon != hLastMon) {
+            hLastMon = hNewMon;
+            UpdateCurrentRotation();
+            InvalidateRect(h, NULL, FALSE);
+        }
         return 0;
     }
 
