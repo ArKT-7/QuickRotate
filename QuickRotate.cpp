@@ -92,7 +92,7 @@ bool bCloseToTray = true;
 bool bAutoStart = false;
 bool bSettingsMode = false;
 bool bUpdateMode = false;
-bool bTrayToggleLP = true;
+int bTrayToggleLP = 1;
 wchar_t iniPath[MAX_PATH];
 bool bShortcutsState[6] = {0};
 
@@ -796,7 +796,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, halfW, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
         hSetControls[11] = CreateMyButton(h, L"Check Update", ID_BTN_UPDATE, BTN_X + halfW + 10, 390, halfW, BTN_SH, WS_TABSTOP);
         struct TogData { int idx; LPCWSTR txt; int id; int y; };
-        LPCWSTR trayText = bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Cycle Rotation (Next \u27F3)";
+        LPCWSTR trayText;
+        if (bTrayToggleLP == 1) trayText = L"Tray Click: Landscape \u2194 Portrait";
+        else if (bTrayToggleLP == 2) trayText = L"Tray Click: Flipped Landscape \u2194 Portrait";
+        else trayText = L"Tray Click: Cycle Rotation (Next \u27F3)";
         
         TogData togs[] = {
             {1, L"Minimize to Tray on Close", ID_CHK_TRAY, 20},
@@ -1070,8 +1073,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             InvalidateRect((HWND)l, NULL, FALSE);
         }
         else if (id == ID_CHK_TRAYMODE) {
-            bTrayToggleLP = !bTrayToggleLP;
-            SetWindowTextW(hSetControls[8], bTrayToggleLP ? L"Tray Click: Landscape \u2194 Portrait" : L"Tray Click: Cycle Rotation (Next \u27F3)");
+            if (bTrayToggleLP == 1) bTrayToggleLP = 2;
+            else if (bTrayToggleLP == 2) bTrayToggleLP = 0;
+            else bTrayToggleLP = 1;
+            wchar_t* modeText;
+            if (bTrayToggleLP == 1) modeText = L"Tray Click: Landscape \u2194 Portrait";
+            else if (bTrayToggleLP == 2) modeText = L"Tray Click: Flipped Landscape \u2194 Portrait";
+            else modeText = L"Tray Click: Cycle Rotation (Next \u27F3)";
+            SetWindowTextW(hSetControls[8], modeText);
             SaveSettings();
             InvalidateRect((HWND)l, NULL, FALSE);
         }
@@ -1103,10 +1112,15 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_TRAYICON: {
         if (l == WM_LBUTTONUP) { 
-            if (bTrayToggleLP) {
+            if (bTrayToggleLP == 1) {
                 int target = (currentScreenRot % 2 == 0) ? 90 : 0;
                 SetRot(target);
-            } else {
+            } 
+            else if (bTrayToggleLP == 2) {
+                int target = (currentScreenRot % 2 == 0) ? 90 : 180;
+                SetRot(target);
+            }
+            else {
                 SetRot(-1); 
             }
             InvalidateRect(h, NULL, FALSE); 
