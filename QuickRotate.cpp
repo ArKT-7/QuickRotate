@@ -282,7 +282,9 @@ void LoadSettings() {
 void SaveSettings() {
     WritePrivateProfileStringW(L"Settings", L"CloseToTray", bCloseToTray ? L"1" : L"0", iniPath);
     WritePrivateProfileStringW(L"Settings", L"AutoStart", bAutoStart ? L"1" : L"0", iniPath);
-    WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", bTrayToggleLP ? L"1" : L"0", iniPath);
+    wchar_t trayModeStr[4];
+    wnsprintfW(trayModeStr, 4, L"%d", bTrayToggleLP);
+    WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", trayModeStr, iniPath);
 }
 
 struct MonData {
@@ -798,7 +800,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         struct TogData { int idx; LPCWSTR txt; int id; int y; };
         LPCWSTR trayText;
         if (bTrayToggleLP == 1) trayText = L"Tray Click: Landscape \u2194 Portrait";
-        else if (bTrayToggleLP == 2) trayText = L"Tray Click: Flipped Landscape \u2194 Portrait";
+        else if (bTrayToggleLP == 2) trayText = L"Tray Click: (F) Landscape \u2194 Portrait";
         else trayText = L"Tray Click: Cycle Rotation (Next \u27F3)";
         
         TogData togs[] = {
@@ -1076,9 +1078,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             if (bTrayToggleLP == 1) bTrayToggleLP = 2;
             else if (bTrayToggleLP == 2) bTrayToggleLP = 0;
             else bTrayToggleLP = 1;
-            wchar_t* modeText;
+            const wchar_t* modeText;
             if (bTrayToggleLP == 1) modeText = L"Tray Click: Landscape \u2194 Portrait";
-            else if (bTrayToggleLP == 2) modeText = L"Tray Click: Flipped Landscape \u2194 Portrait";
+            else if (bTrayToggleLP == 2) modeText = L"Tray Click: (F) Landscape \u2194 Portrait";
             else modeText = L"Tray Click: Cycle Rotation (Next \u27F3)";
             SetWindowTextW(hSetControls[8], modeText);
             SaveSettings();
