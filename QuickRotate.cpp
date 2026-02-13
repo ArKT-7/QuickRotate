@@ -675,7 +675,9 @@ void PerformDownload(HWND h) {
     if (!g_pOpenStream) return;
 
     EnableWindow(hBtnDownload, FALSE);
+    EnableWindow(hSetControls[0], FALSE);
     InvalidateRect(hBtnDownload, NULL, FALSE);
+    InvalidateRect(hSetControls[0], NULL, FALSE);
     SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
     SetWindowTextW(hLblStatus, L"Starting Download...");
     SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
@@ -729,11 +731,13 @@ void PerformDownload(HWND h) {
             SetWindowTextW(hLblStatus, L"Installation Failed");
             SetWindowTextW(hProgress, L"Could not replace file.");
             EnableWindow(hBtnDownload, TRUE);
+            EnableWindow(hSetControls[0], TRUE);
         }
     } else {
         SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
         SetWindowTextW(hLblStatus, L"Download Failed");
         EnableWindow(hBtnDownload, TRUE);
+        EnableWindow(hSetControls[0], TRUE);
     }
 }
 
