@@ -17,7 +17,7 @@
 - ✅ **Cross-Platform Compatibility:** Supports **x86, x64, and ARM32** architectures
 - ✅ **Native Compilation:** Written entirely in C++ and compiles with **g++ (MinGW)**
 - ✅ **Modern Aesthetics:** Anti-aliased icons, rounded corners, and Windows 11 style rendering
-- ✅ **System Tray Integration:** Full background operation with customizable interaction modes
+- ✅ **Smart Tray Integration:** Full background operation with a customizable **3-way interaction switcher**
 - ✅ **One-Click Shortcuts:** Generate desktop icons for instant specific rotations
 - ✅ **Zero Dependencies:** No installation, .NET, or external DLLs required
 
@@ -37,17 +37,20 @@
  **`Click Settings ⚙️ to configure tool behavior and automation:`**
 * **Minimize to Tray on Close:** Hides the app in the system tray instead of exiting when you click close.
 * **Start with Windows:** Integrates with the registry for automatic startup on boot.
-* **Tray Click Mode:** Configure the **Single-Click** behavior of the tray icon to either toggle between **`Landscape/Portrait`** or trigger a **`Clockwise rotation`**.
+* **`Tray Click Mode` (3-Way Toggle):** Configure the **Single-Click** behavior of the tray icon to cycle between:
+    * **Landscape ↔ Portrait**
+    * **(F) Landscape ↔ Portrait** (Flipped orientations)
+    * **Cycle Rotation** (Next ↻)
 * **Desktop Shortcuts:** Click any shortcut toggle to instantly create orientation links on your Desktop for one-click access.
 
 ### 3. 🖱️ System Tray & Context Menu
  **`The tray icon provides fast access to rotation without opening the main window:`**
 
-* **Left-Click (Single-Click Action):** Triggers an action based on your **`Tray Click Mode`** setting. By default, it toggles between **`Landscape ↔ Portrait`** or **`cycles Clockwise`**.
-* **Right-Click (Context Menu):** Opens the **Owner-Drawn Menu** for deeper control:
-    * **Direct Orientation:** Select any specific rotation instantly from the list.
+* **Left-Click:** Triggers your chosen **`Tray Click Mode`**.
+* **Right-Click:** Opens a custom **Owner-Drawn Menu** for direct control:
+    * **Quick Access:** Select any specific rotation directly from the list.
     * **Restore Window:** Returns the main control panel to the center of your screen.
-    * **Exit:** Fully terminates the application and removes it from memory.
+    * **Exit:** Fully terminates the application.
 
 ---
 
