@@ -601,6 +601,8 @@ int CompareVersion(const wchar_t* v1, const wchar_t* v2) {
 
 void PerformUpdateCheck(HWND h) {
     if (!g_pDownload) { SetWindowTextW(hLblStatus, L"Error: Missing DLL"); return; }
+    EnableWindow(hSetControls[11], FALSE);
+    InvalidateRect(hSetControls[11], NULL, FALSE);
 
     ShowWindow(hBtnDownload, SW_HIDE);
     SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
@@ -669,6 +671,7 @@ void PerformUpdateCheck(HWND h) {
         SetWindowTextW(hLblStatus, L"Connection Error");
         SetWindowTextW(hProgress, L"Click 'Check Update' to retry");
     }
+    EnableWindow(hSetControls[11], TRUE);
 }
 
 void PerformDownload(HWND h) {
