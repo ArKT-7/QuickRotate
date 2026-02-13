@@ -603,9 +603,6 @@ int CompareVersion(const wchar_t* v1, const wchar_t* v2) {
 
 void PerformUpdateCheck(HWND h) {
     if (!g_pDownload) { SetWindowTextW(hLblStatus, L"Error: Missing DLL"); return; }
-    EnableWindow(hSetControls[11], FALSE);
-    InvalidateRect(hSetControls[11], NULL, FALSE);
-
     ShowWindow(hBtnDownload, SW_HIDE);
     SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
     SetWindowTextW(hLblStatus, L"Checking...");
@@ -673,7 +670,6 @@ void PerformUpdateCheck(HWND h) {
         SetWindowTextW(hLblStatus, L"Connection Error");
         SetWindowTextW(hProgress, L"Click 'Check Update' to retry");
     }
-    EnableWindow(hSetControls[11], TRUE);
 }
 
 void PerformDownload(HWND h) {
@@ -681,8 +677,10 @@ void PerformDownload(HWND h) {
 
     EnableWindow(hBtnDownload, FALSE);
     EnableWindow(hSetControls[0], FALSE);
+    EnableWindow(hSetControls[11], FALSE);
     InvalidateRect(hBtnDownload, NULL, FALSE);
     InvalidateRect(hSetControls[0], NULL, FALSE);
+    InvalidateRect(hSetControls[11], NULL, FALSE);
     SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
     SetWindowTextW(hLblStatus, L"Starting Download...");
     SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
@@ -737,12 +735,14 @@ void PerformDownload(HWND h) {
             SetWindowTextW(hProgress, L"Could not replace file.");
             EnableWindow(hBtnDownload, TRUE);
             EnableWindow(hSetControls[0], TRUE);
+            EnableWindow(hSetControls[11], TRUE);
         }
     } else {
         SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
         SetWindowTextW(hLblStatus, L"Download Failed");
         EnableWindow(hBtnDownload, TRUE);
         EnableWindow(hSetControls[0], TRUE);
+        EnableWindow(hSetControls[11], TRUE);
     }
 }
 
@@ -1119,7 +1119,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 SetRot(target);
             } 
             else if (bTrayToggleLP == 2) {
-                int target = (currentScreenRot % 2 == 0) ? 90 : 180;
+                int target = (currentScreenRot % 2 == 0) ? 270 : 180;
                 SetRot(target);
             }
             else {
