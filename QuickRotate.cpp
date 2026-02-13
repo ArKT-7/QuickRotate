@@ -123,6 +123,28 @@ void UpdateLayout(HWND h);
 void PerformUpdateCheck(HWND h);
 void PerformDownload(HWND h);
 
+struct Threadupdt {
+    HWND hWnd;
+};
+
+DWORD WINAPI CheckUpdateThread(LPVOID lpParam) {
+    Threadupdt* x = (Threadupdt*)lpParam;
+    if (x) {
+        PerformUpdateCheck(x->hWnd);
+        HeapFree(GetProcessHeap(), 0, x);
+    }
+    return 0;
+}
+
+DWORD WINAPI DownloadThread(LPVOID lpParam) {
+    Threadupdt* x = (Threadupdt*)lpParam;
+    if (x) {
+        PerformDownload(x->hWnd);
+        HeapFree(GetProcessHeap(), 0, x);
+    }
+    return 0;
+}
+
 struct AutoMemDC {
     HDC hDC, hMemDC; HBITMAP hBM, hOldBM; Graphics* g; int x, y, w, h;
     
@@ -200,7 +222,7 @@ void UpdateAutoStartRegistry(bool enable) {
             wchar_t exePath[MAX_PATH];
             EnsureInstalled(exePath, true); 
             wchar_t cmd[MAX_PATH + 20];
-            wsprintfW(cmd, L"\"%s\" -tray", exePath);
+            wnsprintfW(cmd, MAX_PATH + 20, L"\"%s\" -tray", exePath);
             RegSetValueExW(hKey, L"ArKT_QuickRotate", 0, REG_SZ, (LPBYTE)cmd, (lstrlenW(cmd) + 1) * sizeof(wchar_t));
         } else {
             RegDeleteValueW(hKey, L"ArKT_QuickRotate");
@@ -212,7 +234,7 @@ void UpdateAutoStartRegistry(bool enable) {
 void GetLinkPath(wchar_t* outPath, const wchar_t* name) {
     wchar_t szDesktop[MAX_PATH];
     SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, szDesktop);
-    wsprintfW(outPath, L"%s\\%s.lnk", szDesktop, name);
+    wnsprintfW(outPath, MAX_PATH, L"%s\\%s.lnk", szDesktop, name);
 }
 
 HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
@@ -411,7 +433,11 @@ void ToggleUpdateView(HWND h, bool show) {
     ShowWindow(hProgress, showUpd);
     
     if (!show) ShowWindow(hBtnDownload, SW_HIDE);
-    if (show) PerformUpdateCheck(h);
+    if (show) {
+        Threadupdt* params = (Threadupdt*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Threadupdt));
+        params->hWnd = h;
+        CreateThread(NULL, 0, CheckUpdateThread, params, 0, NULL);
+    }
     
     InvalidateRect(h, NULL, TRUE);
 }
@@ -582,14 +608,13 @@ void PerformUpdateCheck(HWND h) {
     SetWindowTextW(hLblCurVer, L"");
     SetWindowTextW(hLblNewVer, L"");
     SetWindowTextW(hProgress, L"Please wait...");
-    UpdateWindow(h);
 
     if (g_pDelCache) g_pDelCache(UPDATE_CHECK_URL); 
 
     wchar_t tmp[MAX_PATH], path[MAX_PATH], url[512];
     GetTempPathW(MAX_PATH, tmp);
-    wsprintfW(path, L"%sQR_v.h", tmp);
-    wsprintfW(url, L"%s?t=%lu", UPDATE_CHECK_URL, GetTickCount());
+    wnsprintfW(path, MAX_PATH, L"%sQR_v.h", tmp);
+    wnsprintfW(url, 512, L"%s?t=%lu", UPDATE_CHECK_URL, GetTickCount());
 
     HRESULT hr = E_FAIL;
     for (int i = 0; i < 2; i++) {
@@ -611,7 +636,7 @@ void PerformUpdateCheck(HWND h) {
             int remB = (int)wcstol(rbS, NULL, 10);
             int locB = atoi(BUILD);
             SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
-            wchar_t cur[64]; wsprintfW(cur, L"Current: %s", VERSION_W);
+            wchar_t cur[64]; wnsprintfW(cur, 64, L"Current: %s", VERSION_W);
             SetWindowTextW(hLblCurVer, cur);
             int verDiff = CompareVersion(ver, VERSION_W);
             bool isNewer = (verDiff > 0) || (verDiff == 0 && remB > locB);
@@ -625,8 +650,8 @@ void PerformUpdateCheck(HWND h) {
                 SetWindowTextW(hLblStatus, L"Update Available!");
                 SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
                 wchar_t neu[64]; 
-                if (verDiff == 0 && remB > locB) wsprintfW(neu, L"New: %s (Rev %d)", ver, remB);
-                else wsprintfW(neu, L"New: %s", ver);
+                if (verDiff == 0 && remB > locB) wnsprintfW(neu, 64, L"New: %s (Rev %d)", ver, remB);
+                else wnsprintfW(neu, 64, L"New: %s", ver);
                 SetWindowTextW(hLblNewVer, neu);
                 SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
                 SetWindowTextW(hProgress, L"Ready to Download");
@@ -651,18 +676,16 @@ void PerformDownload(HWND h) {
 
     EnableWindow(hBtnDownload, FALSE);
     InvalidateRect(hBtnDownload, NULL, FALSE);
-    UpdateWindow(hBtnDownload);
     SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
     SetWindowTextW(hLblStatus, L"Starting Download...");
     SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
     SetWindowTextW(hProgress, L"Initializing...");
-    UpdateWindow(hLblStatus); UpdateWindow(hProgress);
 
     IStream* pStream = NULL;
     if (SUCCEEDED(g_pOpenStream(NULL, g_downloadUrl, &pStream, 0, NULL))) {
         wchar_t tmp[MAX_PATH], newE[MAX_PATH];
         GetTempPathW(MAX_PATH, tmp);
-        wsprintfW(newE, L"%sQR_Upd.tmp", tmp);
+        wnsprintfW(newE, MAX_PATH, L"%sQR_Upd.tmp", tmp);
         
         HANDLE hOut = CreateFileW(newE, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
         
@@ -682,19 +705,16 @@ void PerformDownload(HWND h) {
                 if (pct != lastPct) {
                     lastPct = pct;
                     wchar_t progText[128];
-                    wsprintfW(progText, L"Downloading: %d KB / %d KB (%d%%)",
+                    wnsprintfW(progText, 128, L"Downloading: %d KB / %d KB (%d%%)",
                         totalRead / 1024, total / 1024, pct);
                     SetWindowTextW(hProgress, progText);
-                    UpdateWindow(hProgress);
                 }
             }
-            MSG msg; while(PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessageW(&msg); }
         }
         CloseHandle(hOut); pStream->Release();
 
         SetWindowTextW(hLblStatus, L"Installing Update...");
         SetWindowTextW(hProgress, L"Restarting app...");
-        UpdateWindow(hLblStatus); UpdateWindow(hProgress);
         Sleep(800);
 
         wchar_t cur[MAX_PATH], old[MAX_PATH]; GetModuleFileNameW(NULL, cur, MAX_PATH);
@@ -815,7 +835,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         nid.cbSize = sizeof(NOTIFYICONDATAW); nid.hWnd = h; nid.uID = 1001; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP; nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = hIconSm;
         
-        wsprintfW(nid.szTip, L"%s", AppTitle);
+        wnsprintfW(nid.szTip, 128, L"%s", AppTitle);
         return 0;
     }
 
@@ -1026,7 +1046,11 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else ToggleViewMode(h);
         }
         else if (id == ID_BTN_UPDATE) { ToggleUpdateView(h, true); }
-        else if (id == ID_BTN_DOWNLOAD) { PerformDownload(h); }
+        else if (id == ID_BTN_DOWNLOAD) { 
+            Threadupdt* params = (Threadupdt*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Threadupdt));
+            params->hWnd = h;
+            CreateThread(NULL, 0, DownloadThread, params, 0, NULL);
+        }
         else if (id == ID_CHK_TRAY) {
             bCloseToTray = !bCloseToTray;
             SaveSettings(); 
@@ -1131,13 +1155,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             LineTo(dc, S(WIN_W) - S(32), S(145));
             DeleteObject(hPen);
             wchar_t verText[64];
-            wsprintfW(verText, L"Quick Rotate %s by ArKT", CURRENT_VER);
+            wnsprintfW(verText, 64, L"Quick Rotate %s by ArKT", CURRENT_VER);
             RECT tr = {S(BTN_X), S(430), S(BTN_X) + S(BTN_W), S(480)};
             DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         } 
         else if (!bUpdatePageMode) {
             wchar_t statusText[64];
-            wsprintfW(statusText, L"Active Monitor: %d", g_currentMonNum);
+            wnsprintfW(statusText, 64, L"Active Monitor: %d", g_currentMonNum);
             RECT tr = {0, S(430), S(WIN_W), S(480)}; 
             DrawTextW(dc, statusText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
@@ -1233,7 +1257,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             for (wchar_t* t = p; *t; t++) if (*t == L'\\' || *t == L'/') n = t + 1;
             
             wchar_t msg[1024];
-            wsprintfW(msg, 
+            wnsprintfW(msg, 1024,
                 L"Usage:\n  .\\%s [angle] OR [next]\n\n"
                 L"Examples:\n"
                 L"  .\\%s next   (Rotate Clockwise)\n"
@@ -1244,7 +1268,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 n, n, n, n, n, n);
 
             wchar_t title[256];
-            wsprintfW(title, L" Error or Info? : %s", AppTitle);
+            wnsprintfW(title, 256, L" Error or Info? : %s", AppTitle);
             MessageBoxW(NULL, msg, title, MB_OK | MB_ICONINFORMATION);
             GdiplusShutdown(gdiplusToken);
             CoUninitialize();
