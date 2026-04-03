@@ -30,6 +30,10 @@
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
 
+#ifndef WS_EX_COMPOSITED
+#define WS_EX_COMPOSITED 0x02000000L
+#endif
+
 const CLSID CLSID_ShellLink = {0x00021401, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
 const IID IID_IShellLink    = {0x000214F9, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
 const IID IID_IPersistFile  = {0x0000010b, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
@@ -86,7 +90,8 @@ HFONT hFontTitle = NULL;
 HICON hIconSm = NULL;
 HICON hIconBig = NULL;
 
-WNDPROC oldBtnProc;
+WNDPROC oldBtnProc = NULL;
+WNDPROC oldstaticProc = NULL;
 HWND hHover = NULL;
 HWND hMainWnd = NULL;
 bool g_bShowFocus = false;
@@ -201,8 +206,25 @@ struct AutoMemDC {
     }
 };
 
+LRESULT CALLBACK StaticProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_ERASEBKGND) {
+        HDC dc = (HDC)w;
+        RECT rc;
+        GetClientRect(h, &rc);
+        FillRect(dc, &rc, g_hBrBkgnd);
+        return 1;
+    }
+    return CallWindowProc(oldstaticProc, h, m, w, l);
+}
+
 LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    if (m == WM_ERASEBKGND) return 1;
+    if (m == WM_ERASEBKGND) {
+        HDC dc = (HDC)w;
+        RECT rc;
+        GetClientRect(h, &rc);
+        FillRect(dc, &rc, g_hBrBkgnd);
+        return 1;
+    }
 
     int id = GetDlgCtrlID(h);
     if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
@@ -456,23 +478,83 @@ void GetRoundedRectPath(GraphicsPath* path, Rect r, int d) {
     path->CloseFigure();
 }
 
+HFONT MakeFont(int size, int weight) {
+    return CreateFontW(S(size),0,0,0,weight,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI"); 
+}
+
+void RecreateFonts() {
+    if (hFontTitle) DeleteObject(hFontTitle);
+    if (hFontBold) DeleteObject(hFontBold);
+    if (hFontNormal) DeleteObject(hFontNormal);
+    if (hFontHeader) DeleteObject(hFontHeader);
+    
+    hFontBold   = MakeFont(21, FW_BOLD);
+    hFontNormal = MakeFont(17, FW_NORMAL);
+    hFontHeader = MakeFont(19, FW_BOLD);
+    hFontTitle  = MakeFont(27, FW_BOLD);
+}
+
+void UpdateLayout(HWND h) {
+    RecreateFonts();
+    HDWP hdwp = BeginDeferWindowPos(25);
+
+    auto mv = [&hdwp](HWND w, int y, int h_val, int wd = BTN_W, int x = BTN_X) { 
+        if (w) {
+            hdwp = DeferWindowPos(hdwp, w, NULL, S(x), S(y), S(wd), S(h_val), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS); 
+        }
+    };
+
+    for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * 75), BTN_H);
+    mv(hBtnSettings, 390, BTN_SH);
+    int half = (BTN_W - 10) / 2;
+    mv(hSetControls[0], 390, BTN_SH, half);
+    mv(hSetControls[11], 390, BTN_SH, half, BTN_X + half + 10);
+
+    mv(hSetControls[1], 20, 30);
+    mv(hSetControls[2], 60, 30);
+    mv(hSetControls[8], 100, 30);
+    mv(hSetControls[9], 160, 30);
+
+    for (int i = 0; i < 5; i++) mv(hSetControls[3+i], 198 + (i * 38), 30);
+    
+    if (hSetControls[10]) mv(hSetControls[10], 426, 25);
+
+    if (bUpdatePageMode) {
+        mv(hLblStatus, 160, 35);
+        mv(hLblCurVer, 200, 30);
+        mv(hLblNewVer, 230, 30);
+        mv(hProgress, 275, 40);
+        mv(hBtnDownload, 320, 60);
+    }
+    
+    EndDeferWindowPos(hdwp);
+}
+
 void ToggleUpdateView(HWND h, bool show) {
     SendMessageW(h, WM_SETREDRAW, FALSE, 0);
 
     bUpdatePageMode = show;
     UpdateLayout(h);
 
-    int showSC = show ? SW_HIDE : SW_SHOW;
-    for (int i = 3; i <= 7; i++) ShowWindow(hSetControls[i], showSC);
-    ShowWindow(hSetControls[9], showSC);
+    HDWP hdwp = BeginDeferWindowPos(15);
+    UINT flagSC = show ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
+    UINT flagUpd = show ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
 
-    int showUpd = show ? SW_SHOW : SW_HIDE;
-    ShowWindow(hLblStatus, showUpd);
-    ShowWindow(hLblCurVer, showUpd);
-    ShowWindow(hLblNewVer, showUpd);
-    ShowWindow(hProgress, showUpd);
-    
-    if (!show) ShowWindow(hBtnDownload, SW_HIDE);
+    for (int i = 3; i <= 7; i++) {
+        if (hSetControls[i]) hdwp = DeferWindowPos(hdwp, hSetControls[i], NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagSC);
+    }
+    if (hSetControls[9]) hdwp = DeferWindowPos(hdwp, hSetControls[9], NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagSC);
+
+    if (hLblStatus) hdwp = DeferWindowPos(hdwp, hLblStatus, NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagUpd);
+    if (hLblCurVer) hdwp = DeferWindowPos(hdwp, hLblCurVer, NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagUpd);
+    if (hLblNewVer) hdwp = DeferWindowPos(hdwp, hLblNewVer, NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagUpd);
+    if (hProgress)  hdwp = DeferWindowPos(hdwp, hProgress, NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|flagUpd);
+
+    if (!show && hBtnDownload) {
+        hdwp = DeferWindowPos(hdwp, hBtnDownload, NULL, 0,0,0,0, SWP_NOMOVE|SWP_NOSIZE|SWP_NOZORDER|SWP_NOACTIVATE|SWP_HIDEWINDOW);
+    }
+    EndDeferWindowPos(hdwp);
+
     if (show) {
         Threadupdt* params = (Threadupdt*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Threadupdt));
         params->hWnd = h;
@@ -502,16 +584,23 @@ void ToggleViewMode(HWND h) {
         }
     }
 
-    int showMain = bSettingsMode ? SW_HIDE : SW_SHOW;
-    for (int i=0; i<5; i++) ShowWindow(hBtnRot[i], showMain);
-    ShowWindow(hBtnSettings, showMain);
+    HDWP hdwp = BeginDeferWindowPos(20);
+    UINT flagMain = bSettingsMode ? SWP_HIDEWINDOW : SWP_SHOWWINDOW;
+    UINT flagSet = bSettingsMode ? SWP_SHOWWINDOW : SWP_HIDEWINDOW;
 
-    int showSet = bSettingsMode ? SW_SHOW : SW_HIDE;
-    for (int i=0; i<12; i++) ShowWindow(hSetControls[i], showSet);
+    for (int i=0; i<5; i++) {
+        if (hBtnRot[i]) hdwp = DeferWindowPos(hdwp, hBtnRot[i], NULL, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | flagMain);
+    }
+    if (hBtnSettings) hdwp = DeferWindowPos(hdwp, hBtnSettings, NULL, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | flagMain);
 
-    SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
-    SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
+    for (int i=0; i<12; i++) {
+        if (hSetControls[i]) {
+            hdwp = DeferWindowPos(hdwp, hSetControls[i], NULL, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | flagSet);
+        }
+    }
+    EndDeferWindowPos(hdwp);
 
+    if (hSetControls[10]) SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
     if (bSettingsMode) {
         SetFocus(hSetControls[0]); 
@@ -521,52 +610,6 @@ void ToggleViewMode(HWND h) {
     
     SendMessageW(h, WM_SETREDRAW, TRUE, 0);
     RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
-}
-
-HFONT MakeFont(int size, int weight) { 
-    return CreateFontW(S(size),0,0,0,weight,0,0,0,DEFAULT_CHARSET,0,0,0,FF_SWISS,L"Segoe UI"); 
-}
-
-void RecreateFonts() {
-    if (hFontTitle) DeleteObject(hFontTitle);
-    if (hFontBold) DeleteObject(hFontBold);
-    if (hFontNormal) DeleteObject(hFontNormal);
-    if (hFontHeader) DeleteObject(hFontHeader);
-    
-    hFontBold   = MakeFont(21, FW_BOLD);
-    hFontNormal = MakeFont(17, FW_NORMAL);
-    hFontHeader = MakeFont(19, FW_BOLD);
-    hFontTitle  = MakeFont(27, FW_BOLD);
-}
-
-void UpdateLayout(HWND h) {
-    RecreateFonts();
-
-    auto mv = [](HWND w, int y, int h, int wd = BTN_W, int x = BTN_X) { 
-        if (w) SetWindowPos(w, NULL, S(x), S(y), S(wd), S(h), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS); 
-    };
-
-    for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * 75), BTN_H);
-    mv(hBtnSettings, 390, BTN_SH);
-    int half = (BTN_W - 10) / 2;
-    mv(hSetControls[0], 390, BTN_SH, half);
-    mv(hSetControls[11], 390, BTN_SH, half, BTN_X + half + 10);
-
-    mv(hSetControls[1], 20, 30);
-    mv(hSetControls[2], 60, 30);
-    mv(hSetControls[8], 100, 30);
-    mv(hSetControls[9], 160, 30);
-
-    for (int i = 0; i < 5; i++) mv(hSetControls[3+i], 198 + (i * 38), 30);
-    mv(hSetControls[10], 426, 25);
-
-    if (bUpdatePageMode) {
-        mv(hLblStatus, 160, 35);
-        mv(hLblCurVer, 200, 30);
-        mv(hLblNewVer, 230, 30);
-        mv(hProgress, 275, 40);
-        mv(hBtnDownload, 320, 60);
-    }
 }
 
 void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFilled) {
@@ -802,9 +845,19 @@ void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
 
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-    case WM_ERASEBKGND:
+    case WM_ERASEBKGND: {
+        HDC dc = (HDC)w;
+        RECT rc;
+        GetClientRect(h, &rc);
+        FillRect(dc, &rc, g_hBrBkgnd);
         return 1;
+    }
     case WM_CREATE: {
+        if (pSetWindowAttribute) {
+            BOOL dwmDark = b_IsDarktheme ? TRUE : FALSE;
+            pSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dwmDark, sizeof(dwmDark));
+        }
+
         HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
         if (hUser32) {
             typedef BOOL (WINAPI *tCWMF)(UINT, DWORD);
@@ -872,15 +925,19 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         hSetControls[10] = NULL;
         
         hLblStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        oldstaticProc = (WNDPROC)SetWindowLongPtr(hLblStatus, GWLP_WNDPROC, (LONG_PTR)StaticProc);
         SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
 
         hLblCurVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SetWindowLongPtr(hLblCurVer, GWLP_WNDPROC, (LONG_PTR)StaticProc);
         SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
 
         hLblNewVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SetWindowLongPtr(hLblNewVer, GWLP_WNDPROC, (LONG_PTR)StaticProc);
         SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
 
         hProgress = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
+        SetWindowLongPtr(hProgress, GWLP_WNDPROC, (LONG_PTR)StaticProc);
         SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
 
         hBtnDownload = CreateMyButton(h, L"Download && Install", ID_BTN_DOWNLOAD, 0, 0, 0, 0, BS_PUSHBUTTON);
@@ -1044,8 +1101,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     else { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(80, 80, 80); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 } else {
                     if (active) {
-                        if (pressed) { bg = b_IsDarktheme ? Color(35, 35, 35) : Color(230, 230, 230); txt = b_IsDarktheme ? Color(60, 150, 235) : Color(0, 100, 200); }
-                        else if (hovered) { bg = b_IsDarktheme ? Color(60, 60, 60) : Color(245, 245, 245); txt = b_IsDarktheme ? Color(100, 190, 255) : Color(0, 140, 235); }
+                        if (pressed) { bg = b_IsDarktheme ? Color(35, 35, 35) : Color(200, 220, 255); txt = b_IsDarktheme ? Color(60, 150, 235) : Color(0, 100, 200); }
+                        else if (hovered) { bg = b_IsDarktheme ? Color(60, 60, 60) : Color(220, 235, 255); txt = b_IsDarktheme ? Color(100, 190, 255) : Color(0, 120, 215); }
                         else { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(255, 255, 255); txt = b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215); }
                     } else {
                         if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = b_IsDarktheme ? Color(200, 200, 200) : Color(255, 255, 255); }
@@ -1170,7 +1227,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT pt; GetCursorPos(&pt);
             HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
             MoveToMonitorCenter(h, hMon);
-            ShowWindow(h, SW_RESTORE);
+            ShowWindow(h, SW_SHOW);
             SetForegroundWindow(h);
         }
         else if (id == ID_TRAY_EXIT) { Shell_NotifyIconW(NIM_DELETE, &nid); DestroyWindow(h); }
@@ -1221,7 +1278,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             POINT pt; GetCursorPos(&pt);
             HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
             MoveToMonitorCenter(h, hMon);
-            ShowWindow(h, SW_RESTORE);
+            ShowWindow(h, SW_SHOW);
             SetForegroundWindow(h);
         }
         return 0;
@@ -1431,8 +1488,8 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     g_dpi = GetDeviceCaps(screen, LOGPIXELSX);
     ReleaseDC(NULL, screen);
 
-    hMainWnd = CreateWindowExW(WS_EX_TOPMOST, AppClass, AppTitle,
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
+    hMainWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_COMPOSITED, AppClass, AppTitle,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
         (sw - S(WIN_W)) / 2, (sh - S(WIN_H)) / 2, S(WIN_W), S(WIN_H), NULL, NULL, GetModuleHandle(NULL), NULL);
 
     if (!hMainWnd) {
