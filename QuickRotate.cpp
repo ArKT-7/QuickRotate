@@ -201,7 +201,27 @@ struct AutoMemDC {
     }
 };
 
-LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l);
+LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
+    if (m == WM_ERASEBKGND) return 1;
+
+    int id = GetDlgCtrlID(h);
+    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
+        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+    if (m == WM_MOUSEMOVE) {
+        if (hHover != h) {
+            hHover = h;
+            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW); 
+            TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
+            TrackMouseEvent(&t);
+        }
+    }
+    else if (m == WM_MOUSELEAVE) {
+        hHover = NULL;
+        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
+    return CallWindowProc(oldBtnProc, h, m, w, l);
+}
 
 HWND CreateMyButton(HWND parent, LPCWSTR text, int id, int x, int y, int w, int h, DWORD extraStyle = 0) {
     HWND btn = CreateWindowW(L"BUTTON", text, WS_CHILD | BS_OWNERDRAW | extraStyle, 
@@ -436,26 +456,6 @@ void GetRoundedRectPath(GraphicsPath* path, Rect r, int d) {
     path->CloseFigure();
 }
 
-LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
-    int id = GetDlgCtrlID(h);
-    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
-        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
-    }
-    if (m == WM_MOUSEMOVE) {
-        if (hHover != h) {
-            hHover = h;
-            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW); 
-            TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
-            TrackMouseEvent(&t);
-        }
-    }
-    else if (m == WM_MOUSELEAVE) {
-        hHover = NULL;
-        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
-    }
-    return CallWindowProc(oldBtnProc, h, m, w, l);
-}
-
 void ToggleUpdateView(HWND h, bool show) {
     SendMessageW(h, WM_SETREDRAW, FALSE, 0);
 
@@ -480,7 +480,7 @@ void ToggleUpdateView(HWND h, bool show) {
     }
     
     SendMessageW(h, WM_SETREDRAW, TRUE, 0);
-    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_ALLCHILDREN);
+    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 void ToggleViewMode(HWND h) {
@@ -520,7 +520,7 @@ void ToggleViewMode(HWND h) {
     }
     
     SendMessageW(h, WM_SETREDRAW, TRUE, 0);
-    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_ALLCHILDREN);
+    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
 }
 
 HFONT MakeFont(int size, int weight) { 
