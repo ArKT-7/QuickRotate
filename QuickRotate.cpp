@@ -1043,14 +1043,19 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     else if (hovered) { bg = b_IsDarktheme ? Color(60, 60, 60) : Color(120, 120, 120); txt = Color(255, 255, 255); }
                     else { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(80, 80, 80); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 } else {
-                    if (active && !hovered) { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(255, 255, 255); txt = b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215); }
-                    else if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = b_IsDarktheme ? Color(200, 200, 200) : Color(255, 255, 255); }
-                    else if (hovered) { bg = b_IsDarktheme ? Color(0, 120, 215) : Color(135, 206, 250); txt = b_IsDarktheme ? Color(255, 255, 255) : Color(0, 60, 140); }
-                    else { bg = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
+                    if (active) {
+                        if (pressed) { bg = b_IsDarktheme ? Color(35, 35, 35) : Color(230, 230, 230); txt = b_IsDarktheme ? Color(60, 150, 235) : Color(0, 100, 200); }
+                        else if (hovered) { bg = b_IsDarktheme ? Color(60, 60, 60) : Color(245, 245, 245); txt = b_IsDarktheme ? Color(100, 190, 255) : Color(0, 140, 235); }
+                        else { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(255, 255, 255); txt = b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215); }
+                    } else {
+                        if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = b_IsDarktheme ? Color(200, 200, 200) : Color(255, 255, 255); }
+                        else if (hovered) { bg = Color(135, 206, 250); txt = Color(0, 60, 140); }
+                        else { bg = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
+                    }
                 }
                 if (btnId == ID_BTN_DOWNLOAD && !disabled) {
                     if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = Color(255, 255, 255); }
-                    else if (hovered) { bg = b_IsDarktheme ? Color(0, 120, 215) : Color(0, 100, 200); txt = Color(255, 255, 255); }
+                    else if (hovered) { bg = Color(135, 206, 250); txt = Color(0, 60, 140); }
                     else { bg = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 }
 
@@ -1063,7 +1068,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
                 
                 if (active) {
-                    Pen p(hovered ? (b_IsDarktheme ? Color(255, 255, 255) : Color(255, 255, 255)) : (b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215)), S(3));
+                    Pen p(txt, S(3));
                     p.SetStartCap(LineCapRound); p.SetEndCap(LineCapRound); p.SetLineJoin(LineJoinRound);
                     int tx = w - S(40), ty = h / 2;
                     g->DrawLine(&p, tx, ty, tx + S(5), ty + S(5)); g->DrawLine(&p, tx + S(5), ty + S(5), tx + S(14), ty - S(6));
