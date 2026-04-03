@@ -23,6 +23,12 @@
 #define ODS_NOFOCUSRECT 0x0200
 #endif
 
+#ifndef WM_DPICHANGED
+#define WM_DPICHANGED 0x02E0
+#endif
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif
 
 const CLSID CLSID_ShellLink = {0x00021401, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
 const IID IID_IShellLink    = {0x000214F9, 0, 0, {0xC0,0,0,0,0,0,0,0x46}};
@@ -84,6 +90,7 @@ WNDPROC oldBtnProc;
 HWND hHover = NULL;
 HWND hMainWnd = NULL;
 bool g_bShowFocus = false;
+bool b_IsDarktheme = false;
 
 ULONG_PTR gdiplusToken;
 int currentScreenRot = -1;
@@ -108,14 +115,41 @@ HWND hLblNewVer = NULL;
 HWND hBtnDownload = NULL;
 HWND hProgress = NULL;
 wchar_t g_downloadUrl[512] = {0};
-HMODULE g_hUrlMon = NULL, g_hWinInet = NULL;
+HMODULE g_hUrlMon = NULL, g_hWinInet = NULL, dwmLib = NULL;
 typedef HRESULT (WINAPI *tUD)(LPUNKNOWN, LPCWSTR, LPCWSTR, DWORD, LPVOID);
 typedef HRESULT (WINAPI *tOS)(LPUNKNOWN, LPCWSTR, IStream**, DWORD, LPVOID);
 typedef BOOL    (WINAPI *tDC)(LPCWSTR);
+typedef HRESULT (WINAPI *fnDwmSetWindowAttribute)(HWND, DWORD, LPCVOID, DWORD);
 tUD g_pDownload = NULL;
 tOS g_pOpenStream = NULL;
 tDC g_pDelCache = NULL;
+fnDwmSetWindowAttribute pSetWindowAttribute = NULL;
 int g_currentMonNum = 1;
+
+void RefreshTheme(HWND h) {
+    DWORD lightModeVal = 1;
+    DWORD valSize = sizeof(lightModeVal);
+    HKEY hKey;
+    
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegQueryValueExW(hKey, L"AppsUseLightTheme", NULL, NULL, (LPBYTE)&lightModeVal, &valSize);
+        RegCloseKey(hKey);
+    }
+    
+    b_IsDarktheme = (lightModeVal == 0);
+
+    if (g_hBrBkgnd) DeleteObject(g_hBrBkgnd);
+    g_hBrBkgnd = CreateSolidBrush(b_IsDarktheme ? RGB(32, 32, 32) : RGB(240, 240, 240));
+
+    if (h) {
+        if (pSetWindowAttribute) {
+            BOOL dwmDark = b_IsDarktheme ? TRUE : FALSE;
+            pSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dwmDark, sizeof(dwmDark));
+        }
+        SetClassLongPtr(h, GCLP_HBRBACKGROUND, (LONG_PTR)g_hBrBkgnd);
+        InvalidateRect(h, NULL, TRUE);
+    }
+}
 
 const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
 const wchar_t* CURRENT_VER = VERSION_W;
@@ -155,7 +189,7 @@ struct AutoMemDC {
         g = new Graphics(hMemDC);
         g->SetSmoothingMode(SmoothingModeAntiAlias);
         g->SetTextRenderingHint(TextRenderingHintClearTypeGridFit);
-        g->Clear(Color(240, 240, 240));
+        g->Clear(b_IsDarktheme ? Color(32, 32, 32) : Color(240, 240, 240));
     }
 
     ~AutoMemDC() {
@@ -404,23 +438,27 @@ void GetRoundedRectPath(GraphicsPath* path, Rect r, int d) {
 
 LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     int id = GetDlgCtrlID(h);
-    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) InvalidateRect(h, NULL, FALSE);
+    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
+        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+    }
     if (m == WM_MOUSEMOVE) {
         if (hHover != h) {
             hHover = h;
-            InvalidateRect(h, NULL, FALSE); 
+            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW); 
             TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
             TrackMouseEvent(&t);
         }
     }
     else if (m == WM_MOUSELEAVE) {
         hHover = NULL;
-        InvalidateRect(h, NULL, FALSE);
+        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
     }
     return CallWindowProc(oldBtnProc, h, m, w, l);
 }
 
 void ToggleUpdateView(HWND h, bool show) {
+    SendMessageW(h, WM_SETREDRAW, FALSE, 0);
+
     bUpdatePageMode = show;
     UpdateLayout(h);
 
@@ -441,7 +479,8 @@ void ToggleUpdateView(HWND h, bool show) {
         CreateThread(NULL, 0, CheckUpdateThread, params, 0, NULL);
     }
     
-    InvalidateRect(h, NULL, TRUE);
+    SendMessageW(h, WM_SETREDRAW, TRUE, 0);
+    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 void ToggleViewMode(HWND h) {
@@ -449,6 +488,8 @@ void ToggleViewMode(HWND h) {
         ToggleUpdateView(h, false);
         return;
     }
+
+    SendMessageW(h, WM_SETREDRAW, FALSE, 0);
 
     bSettingsMode = !bSettingsMode;
 
@@ -471,13 +512,15 @@ void ToggleViewMode(HWND h) {
     SetWindowPos(hSetControls[10], NULL, S(BTN_X), S(426), S(BTN_W), S(25), SWP_NOZORDER);
     SendMessageW(hSetControls[10], WM_SETFONT, (WPARAM)hFontNormal, TRUE);
 
-    InvalidateRect(h, NULL, TRUE);
 
     if (bSettingsMode) {
         SetFocus(hSetControls[0]); 
     } else {
         SetFocus(hBtnRot[0]); 
     }
+    
+    SendMessageW(h, WM_SETREDRAW, TRUE, 0);
+    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 HFONT MakeFont(int size, int weight) { 
@@ -500,7 +543,7 @@ void UpdateLayout(HWND h) {
     RecreateFonts();
 
     auto mv = [](HWND w, int y, int h, int wd = BTN_W, int x = BTN_X) { 
-        SetWindowPos(w, NULL, S(x), S(y), S(wd), S(h), SWP_NOZORDER); 
+        if (w) SetWindowPos(w, NULL, S(x), S(y), S(wd), S(h), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS); 
     };
 
     for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * 75), BTN_H);
@@ -524,8 +567,6 @@ void UpdateLayout(HWND h) {
         mv(hProgress, 275, 40);
         mv(hBtnDownload, 320, 60);
     }
-    
-    InvalidateRect(h, NULL, TRUE);
 }
 
 void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFilled) {
@@ -851,13 +892,14 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 0;
     }
 
-    case 0x02E0: {
+    case WM_DPICHANGED: {
         g_dpi = HIWORD(w);
         RECT* const prcNewWindow = (RECT*)l;
         SetWindowPos(h, NULL, prcNewWindow->left, prcNewWindow->top,
             prcNewWindow->right - prcNewWindow->left,
             prcNewWindow->bottom - prcNewWindow->top,
             SWP_NOZORDER | SWP_NOACTIVATE);
+        RecreateFonts();
         UpdateLayout(h); 
         return 0;
     }
@@ -869,7 +911,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hLastMon = hNewMon;
             UpdateCurrentRotation();
             g_currentMonNum = GetLogicalMonitorIndex(hNewMon);
-            InvalidateRect(h, NULL, FALSE);
+            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
         }
         return 0;
     }
@@ -881,12 +923,22 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             MoveToMonitorCenter(h, hMon);
             g_currentMonNum = GetLogicalMonitorIndex(hMon);
         }
-        InvalidateRect(h, NULL, FALSE);
+        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+        return 0;
+    }
+
+    case WM_SETTINGCHANGE: {
+        if (l != 0 && lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet") == 0) {
+            RefreshTheme(h);
+        }
         return 0;
     }
 
     case WM_CTLCOLORSTATIC: {
-        HDC hdcStatic = (HDC)w; SetBkColor(hdcStatic, 0xF0F0F0); SetBkMode(hdcStatic, TRANSPARENT); 
+        HDC hdcStatic = (HDC)w;
+        SetBkColor(hdcStatic, b_IsDarktheme ? RGB(32, 32, 32) : RGB(240, 240, 240)); 
+        SetTextColor(hdcStatic, b_IsDarktheme ? RGB(220, 220, 220) : RGB(0, 0, 0));
+        SetBkMode(hdcStatic, TRANSPARENT); 
         return (INT_PTR)g_hBrBkgnd;
     }
 
@@ -927,16 +979,21 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             int btnId = p->CtlID;
 
             if (btnId == ID_CHK_TRAYMODE) {
-                g->Clear(Color(240, 240, 240)); 
+                g->Clear(b_IsDarktheme ? Color(32, 32, 32) : Color(240, 240, 240)); 
                 wchar_t buf_t[64]; GetWindowTextW(p->hwndItem, buf_t, 64);
-                SetBkMode(buf.hMemDC, 1); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontHeader);
+                SetBkMode(buf.hMemDC, TRANSPARENT); 
+                SetTextColor(buf.hMemDC, b_IsDarktheme ? RGB(220, 220, 220) : RGB(0, 0, 0)); 
+                SelectObject(buf.hMemDC, hFontHeader);
                 RECT tr = {S(5), 0, w - S(50), h}; DrawTextW(buf.hMemDC, buf_t, -1, &tr, 36); 
                 int bW = S(44), bH = S(24); Rect rB(w - bW - S(2), (h - bH) / 2, bW, bH);
                 bool hv = (hHover == p->hwndItem);
-                Color cB = pressed ? Color(0, 60, 120) : (hv ? Color(0, 140, 235) : Color(0, 120, 215));
+                Color cB;
+                if (pressed) cB = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 60, 120);
+                else if (hv) cB = b_IsDarktheme ? Color(0, 120, 215) : Color(0, 140, 235);
+                else cB = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215);
                 GraphicsPath ph; GetRoundedRectPath(&ph, rB, S(24));
                 SolidBrush br(cB); g->FillPath(&br, &ph);
-                Pen pn(Color(255, 255, 255), S(2));
+                Pen pn(b_IsDarktheme ? Color(220, 220, 220) : Color(255, 255, 255), S(2));
                 pn.SetStartCap(LineCapRound); pn.SetEndCap(LineCapRound);
                 int cx = rB.X + bW/2, cy = rB.Y + bH/2, f = S(3);
                 g->DrawLine(&pn, cx-f, cy-f, cx+f-S(1), cy); g->DrawLine(&pn, cx+f-S(1), cy, cx-f, cy+f);
@@ -952,14 +1009,21 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 else if (btnId >= 4000) isChecked = bShortcutsState[btnId - 4000];
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
-                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontHeader);
+                SetBkMode(buf.hMemDC, TRANSPARENT); 
+                SetTextColor(buf.hMemDC, b_IsDarktheme ? RGB(220, 220, 220) : RGB(0, 0, 0)); 
+                SelectObject(buf.hMemDC, hFontHeader);
                 RECT tr = {S(5), 0, w - S(55), h}; DrawTextW(buf.hMemDC, text, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
 
                 int tH = S(22), tW = S(44), tX = w - tW - S(2), tY = (h - tH) / 2;
                 GraphicsPath path; path.AddArc(tX, tY, tH, tH, 90, 180); path.AddArc(tX + tW - tH, tY, tH, tH, 270, 180); path.CloseFigure();
-                Color tc = isChecked ? (hovered ? Color(0, 140, 235) : Color(0, 120, 215)) : (hovered ? Color(195, 195, 195) : Color(180, 180, 180));
+                Color tc;
+                if (isChecked) {
+                    tc = hovered ? (b_IsDarktheme ? Color(0, 120, 215) : Color(0, 140, 235)) : (b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215));
+                } else {
+                    tc = hovered ? (b_IsDarktheme ? Color(70, 70, 70) : Color(195, 195, 195)) : (b_IsDarktheme ? Color(50, 50, 50) : Color(180, 180, 180));
+                }
                 SolidBrush tb(tc); g->FillPath(&tb, &path);
-                SolidBrush wb(Color(255, 255, 255));
+                SolidBrush wb(b_IsDarktheme ? Color(220, 220, 220) : Color(255, 255, 255));
                 g->FillEllipse(&wb, isChecked ? (tX + tW - S(16) - S(3)) : (tX + S(3)), tY + (tH - S(16)) / 2, S(16), S(16));
 
                 if (focused && g_bShowFocus) {
@@ -974,20 +1038,20 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 bool disabled = (p->itemState & ODS_DISABLED);
 
                 if (btnId == ID_BTN_SETTINGS || btnId == ID_BTN_BACK || btnId == ID_BTN_UPDATE || btnId == ID_BTN_DOWNLOAD) {
-                    if (disabled) { bg = Color(200, 200, 200); txt = Color(160, 160, 160); }
-                    else if (pressed) { bg = Color(60, 60, 60); txt = Color(255, 255, 255); }
-                    else if (hovered) { bg = Color(120, 120, 120); txt = Color(255, 255, 255); }
-                    else { bg = Color(80, 80, 80); txt = Color(255, 255, 255); }
+                    if (disabled) { bg = b_IsDarktheme ? Color(40, 40, 40) : Color(200, 200, 200); txt = b_IsDarktheme ? Color(100, 100, 100) : Color(160, 160, 160); }
+                    else if (pressed) { bg = b_IsDarktheme ? Color(35, 35, 35) : Color(60, 60, 60); txt = Color(255, 255, 255); }
+                    else if (hovered) { bg = b_IsDarktheme ? Color(60, 60, 60) : Color(120, 120, 120); txt = Color(255, 255, 255); }
+                    else { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(80, 80, 80); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 } else {
-                    if (active && !hovered) { bg = Color(255, 255, 255); txt = Color(0, 120, 215); }
-                    else if (pressed) { bg = Color(0, 80, 160); txt = Color(255, 255, 255); }
-                    else if (hovered) { bg = Color(135, 206, 250); txt = Color(0, 60, 140); }
-                    else { bg = Color(0, 120, 215); txt = Color(255, 255, 255); }
+                    if (active && !hovered) { bg = b_IsDarktheme ? Color(45, 45, 45) : Color(255, 255, 255); txt = b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215); }
+                    else if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = b_IsDarktheme ? Color(200, 200, 200) : Color(255, 255, 255); }
+                    else if (hovered) { bg = b_IsDarktheme ? Color(0, 120, 215) : Color(135, 206, 250); txt = b_IsDarktheme ? Color(255, 255, 255) : Color(0, 60, 140); }
+                    else { bg = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 }
                 if (btnId == ID_BTN_DOWNLOAD && !disabled) {
-                    if (pressed) { bg = Color(0, 80, 160); txt = Color(255, 255, 255); }
-                    else if (hovered) { bg = Color(0, 100, 200); txt = Color(255, 255, 255); }
-                    else { bg = Color(0, 120, 215); txt = Color(255, 255, 255); }
+                    if (pressed) { bg = b_IsDarktheme ? Color(0, 80, 150) : Color(0, 80, 160); txt = Color(255, 255, 255); }
+                    else if (hovered) { bg = b_IsDarktheme ? Color(0, 120, 215) : Color(0, 100, 200); txt = Color(255, 255, 255); }
+                    else { bg = b_IsDarktheme ? Color(0, 100, 180) : Color(0, 120, 215); txt = b_IsDarktheme ? Color(230, 230, 230) : Color(255, 255, 255); }
                 }
 
                 GraphicsPath path; Rect r(S(2), S(2), w - S(4), h - S(4));
@@ -999,7 +1063,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
                 
                 if (active) {
-                    Pen p(hovered ? Color(255, 255, 255) : Color(0, 120, 215), S(3));
+                    Pen p(hovered ? (b_IsDarktheme ? Color(255, 255, 255) : Color(255, 255, 255)) : (b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215)), S(3));
                     p.SetStartCap(LineCapRound); p.SetEndCap(LineCapRound); p.SetLineJoin(LineJoinRound);
                     int tx = w - S(40), ty = h / 2;
                     g->DrawLine(&p, tx, ty, tx + S(5), ty + S(5)); g->DrawLine(&p, tx + S(5), ty + S(5), tx + S(14), ty - S(6));
@@ -1028,19 +1092,23 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 }
             }
         } else if (p->CtlType == ODT_MENU) {
-            g->Clear(Color(255, 255, 255));
+            g->Clear(b_IsDarktheme ? Color(36, 36, 36) : Color(255, 255, 255));
             if (p->itemID == 0) {
-                Pen pen(Color(220, 220, 220), 1); g->DrawLine(&pen, S(10), h / 2, w - S(10), h / 2);
+                Pen pen(b_IsDarktheme ? Color(70, 70, 70) : Color(220, 220, 220), 1); 
+                g->DrawLine(&pen, S(10), h / 2, w - S(10), h / 2);
             } else {
                 if (p->itemState & ODS_SELECTED) {
                     Rect r(S(4), S(2), w - S(8), h - S(4));
                     GraphicsPath path; GetRoundedRectPath(&path, r, S(8));
-                    SolidBrush b(Color(230, 243, 255)); g->FillPath(&b, &path);
+                    SolidBrush b(b_IsDarktheme ? Color(55, 55, 55) : Color(230, 243, 255)); g->FillPath(&b, &path);
                 }
                 bool chk = (p->itemState & ODS_CHECKED);
-                DrawProIcon(*g, p->itemID, S(12), (h - S(16)) / 2, S(16), chk ? Color(0, 120, 215) : Color(150, 150, 150), chk);
+                Color iconCol = chk ? (b_IsDarktheme ? Color(80, 170, 255) : Color(0, 120, 215)) : (b_IsDarktheme ? Color(120, 120, 120) : Color(150, 150, 150));
+                DrawProIcon(*g, p->itemID, S(12), (h - S(16)) / 2, S(16), iconCol, chk);
 
-                SetBkMode(buf.hMemDC, TRANSPARENT); SetTextColor(buf.hMemDC, 0); SelectObject(buf.hMemDC, hFontHeader);
+                SetBkMode(buf.hMemDC, TRANSPARENT); 
+                SetTextColor(buf.hMemDC, b_IsDarktheme ? RGB(220, 220, 220) : RGB(0, 0, 0)); 
+                SelectObject(buf.hMemDC, hFontHeader);
                 RECT tr = {S(40), 0, w, h}; DrawTextW(buf.hMemDC, (LPCWSTR)p->itemData, -1, &tr, DT_LEFT | DT_VCENTER | DT_SINGLELINE);
             }
         }
@@ -1051,8 +1119,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int id = LOWORD(w);
         if (id >= 100 && id <= 103) { 
             SetRot((id - 100) * 90);
-            InvalidateRect(h, NULL, FALSE); }
-        else if (id == 105) { SetRot(-1); InvalidateRect(h, NULL, FALSE); }
+            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); }
+        else if (id == 105) { SetRot(-1); RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); }
         else if (id == ID_BTN_SETTINGS || id == ID_BTN_BACK) {
             if (id == ID_BTN_BACK && bUpdatePageMode) ToggleUpdateView(h, false);
             else ToggleViewMode(h);
@@ -1066,13 +1134,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (id == ID_CHK_TRAY) {
             bCloseToTray = !bCloseToTray;
             SaveSettings(); 
-            InvalidateRect((HWND)l, NULL, FALSE);
+            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
         }
         else if (id == ID_CHK_AUTOSTART) {
             bAutoStart = !bAutoStart;
             UpdateAutoStartRegistry(bAutoStart);
             SaveSettings();
-            InvalidateRect((HWND)l, NULL, FALSE);
+            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
         }
         else if (id == ID_CHK_TRAYMODE) {
             if (bTrayToggleLP == 1) bTrayToggleLP = 2;
@@ -1084,13 +1152,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else modeText = L"Tray Click: Cycle Rotation (Next \u27F3)";
             SetWindowTextW(hSetControls[8], modeText);
             SaveSettings();
-            InvalidateRect((HWND)l, NULL, FALSE);
+            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
         }
         else if (id >= ID_SC_NEXT && id <= ID_SC_APP) {
             int idx = id - 4000;
             bShortcutsState[idx] = !bShortcutsState[idx];
             ManageShortcut(idx, bShortcutsState[idx]);
-            InvalidateRect((HWND)l, NULL, FALSE);
+            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
         }
 
         else if (id == ID_TRAY_RESTORE) { 
@@ -1125,7 +1193,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else {
                 SetRot(-1); 
             }
-            InvalidateRect(h, NULL, FALSE); 
+            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); 
         }
         else if (l == WM_RBUTTONUP) {
             POINT p; GetCursorPos(&p); HMENU hMenu = CreatePopupMenu();
@@ -1164,15 +1232,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC dc = BeginPaint(h, &ps);
-        HBRUSH bg = CreateSolidBrush(0xF0F0F0);
-        FillRect(dc, &ps.rcPaint, bg);
-        DeleteObject(bg);
+        FillRect(dc, &ps.rcPaint, g_hBrBkgnd); 
         SetBkMode(dc, TRANSPARENT);
         SelectObject(dc, hFontHeader);
-        SetTextColor(dc, RGB(160, 160, 160));
+        SetTextColor(dc, b_IsDarktheme ? RGB(110, 110, 110) : RGB(160, 160, 160)); 
 
         if (bSettingsMode) {
-            HPEN hPen = CreatePen(PS_SOLID, S(2), RGB(200, 200, 200));
+            HPEN hPen = CreatePen(PS_SOLID, S(2), b_IsDarktheme ? RGB(70, 70, 70) : RGB(200, 200, 200)); 
             SelectObject(dc, hPen);
             MoveToEx(dc, S(20), S(145), NULL);
             LineTo(dc, S(WIN_W) - S(32), S(145));
@@ -1216,7 +1282,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     }
     g_hWinInet = LoadLibraryW(L"wininet.dll");
     if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
-    g_hBrBkgnd = CreateSolidBrush(0xF0F0F0);
+    dwmLib = LoadLibraryW(L"dwmapi.dll");
+    if (dwmLib) {
+        pSetWindowAttribute = (fnDwmSetWindowAttribute)GetProcAddress(dwmLib, "DwmSetWindowAttribute");
+    }
+    RefreshTheme(NULL);
     InitSettingsPath();
 
     if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
@@ -1258,6 +1328,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         else {
             if (IsArg(cmd, L"next") || IsArg(cmd, L"rotate")) {
                 SetRot(-1);
+                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
                 CoUninitialize();
                 ExitProcess(0);
@@ -1269,6 +1340,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
             if (isValidNum && (a == 0 || a == 90 || a == 180 || a == 270)) {
                 SetRot(a);
+                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
                 CoUninitialize();
                 ExitProcess(0);
@@ -1293,6 +1365,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             wchar_t title[256];
             wnsprintfW(title, 256, L" Error or Info? : %s", AppTitle);
             MessageBoxW(NULL, msg, title, MB_OK | MB_ICONINFORMATION);
+            if (dwmLib) FreeLibrary(dwmLib);
             GdiplusShutdown(gdiplusToken);
             CoUninitialize();
             ExitProcess(0);
@@ -1314,7 +1387,9 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                     PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
                     SetForegroundWindow(hExisting);
                 }
+                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
+                CloseHandle(hMutex);
                 CoUninitialize(); 
                 ExitProcess(0); 
             }
@@ -1352,15 +1427,18 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     ReleaseDC(NULL, screen);
 
     hMainWnd = CreateWindowExW(WS_EX_TOPMOST, AppClass, AppTitle,
-        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
+        WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN,
         (sw - S(WIN_W)) / 2, (sh - S(WIN_H)) / 2, S(WIN_W), S(WIN_H), NULL, NULL, GetModuleHandle(NULL), NULL);
 
     if (!hMainWnd) {
         ReleaseMutex(hMutex);
+        CloseHandle(hMutex); 
+        if (dwmLib) FreeLibrary(dwmLib);
         GdiplusShutdown(gdiplusToken);
         CoUninitialize();
         ExitProcess(1);
     }
+    RefreshTheme(hMainWnd);
 
     SendMessageW(hMainWnd, WM_SETICON, ICON_BIG, (LPARAM)hIconBig);
     SendMessageW(hMainWnd, WM_SETICON, ICON_SMALL, (LPARAM)hIconSm);
@@ -1401,8 +1479,10 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         }
     }
 
+    if (dwmLib) FreeLibrary(dwmLib);
     GdiplusShutdown(gdiplusToken);
     ReleaseMutex(hMutex);
+    CloseHandle(hMutex);
     if (g_hUrlMon) FreeLibrary(g_hUrlMon);
     if (g_hWinInet) FreeLibrary(g_hWinInet);
     CoUninitialize(); 
