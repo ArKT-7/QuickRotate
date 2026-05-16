@@ -58,7 +58,7 @@ jobs:
 
       - name: VirusTotal Scan
         id: vt
-        uses: crazy-max/ghaction-virustotal@v4
+        uses: crazy-max/ghaction-virustotal@v5
         with:
           vt_api_key: ${{ secrets.VT_API_KEY }}
           files: QuickRotate.exe
@@ -128,7 +128,7 @@ jobs:
           [System.IO.File]::WriteAllText("release_notes.md", $body)
 
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.APP_VERSION }}
           name: Quick Rotate v${{ env.APP_VERSION }}
