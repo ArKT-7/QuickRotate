@@ -120,15 +120,13 @@ HWND hLblNewVer = NULL;
 HWND hBtnDownload = NULL;
 HWND hProgress = NULL;
 wchar_t g_downloadUrl[512] = {0};
-HMODULE g_hUrlMon = NULL, g_hWinInet = NULL, dwmLib = NULL;
+HMODULE g_hUrlMon = NULL, g_hWinInet = NULL;
 typedef HRESULT (WINAPI *tUD)(LPUNKNOWN, LPCWSTR, LPCWSTR, DWORD, LPVOID);
 typedef HRESULT (WINAPI *tOS)(LPUNKNOWN, LPCWSTR, IStream**, DWORD, LPVOID);
 typedef BOOL    (WINAPI *tDC)(LPCWSTR);
-typedef HRESULT (WINAPI *fnDwmSetWindowAttribute)(HWND, DWORD, LPCVOID, DWORD);
 tUD g_pDownload = NULL;
 tOS g_pOpenStream = NULL;
 tDC g_pDelCache = NULL;
-fnDwmSetWindowAttribute pSetWindowAttribute = NULL;
 int g_currentMonNum = 1;
 
 void RefreshTheme(HWND h) {
@@ -147,9 +145,15 @@ void RefreshTheme(HWND h) {
     g_hBrBkgnd = CreateSolidBrush(b_IsDarktheme ? RGB(32, 32, 32) : RGB(240, 240, 240));
 
     if (h) {
-        if (pSetWindowAttribute) {
-            BOOL dwmDark = b_IsDarktheme ? TRUE : FALSE;
-            pSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dwmDark, sizeof(dwmDark));
+        HMODULE lib = LoadLibraryW(L"dwmapi.dll");
+        if (lib) {
+            typedef HRESULT (WINAPI *set_attr_t)(HWND, DWORD, LPCVOID, DWORD);
+            set_attr_t set_attr = (set_attr_t)GetProcAddress(lib, "DwmSetWindowAttribute");
+            
+            if (set_attr) {
+                BOOL dark = b_IsDarktheme;
+                set_attr(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
+            }
         }
         SetClassLongPtr(h, GCLP_HBRBACKGROUND, (LONG_PTR)g_hBrBkgnd);
         InvalidateRect(h, NULL, TRUE);
@@ -853,11 +857,6 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         return 1;
     }
     case WM_CREATE: {
-        if (pSetWindowAttribute) {
-            BOOL dwmDark = b_IsDarktheme ? TRUE : FALSE;
-            pSetWindowAttribute(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dwmDark, sizeof(dwmDark));
-        }
-
         HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
         if (hUser32) {
             typedef BOOL (WINAPI *tCWMF)(UINT, DWORD);
@@ -1344,10 +1343,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     }
     g_hWinInet = LoadLibraryW(L"wininet.dll");
     if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
-    dwmLib = LoadLibraryW(L"dwmapi.dll");
-    if (dwmLib) {
-        pSetWindowAttribute = (fnDwmSetWindowAttribute)GetProcAddress(dwmLib, "DwmSetWindowAttribute");
-    }
     RefreshTheme(NULL);
     InitSettingsPath();
 
@@ -1390,7 +1385,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         else {
             if (IsArg(cmd, L"next") || IsArg(cmd, L"rotate")) {
                 SetRot(-1);
-                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
                 CoUninitialize();
                 ExitProcess(0);
@@ -1402,7 +1396,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
             if (isValidNum && (a == 0 || a == 90 || a == 180 || a == 270)) {
                 SetRot(a);
-                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
                 CoUninitialize();
                 ExitProcess(0);
@@ -1427,7 +1420,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             wchar_t title[256];
             wnsprintfW(title, 256, L" Error or Info? : %s", AppTitle);
             MessageBoxW(NULL, msg, title, MB_OK | MB_ICONINFORMATION);
-            if (dwmLib) FreeLibrary(dwmLib);
             GdiplusShutdown(gdiplusToken);
             CoUninitialize();
             ExitProcess(0);
@@ -1449,7 +1441,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                     PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
                     SetForegroundWindow(hExisting);
                 }
-                if (dwmLib) FreeLibrary(dwmLib);
                 GdiplusShutdown(gdiplusToken);
                 CloseHandle(hMutex);
                 CoUninitialize(); 
@@ -1495,7 +1486,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     if (!hMainWnd) {
         ReleaseMutex(hMutex);
         CloseHandle(hMutex); 
-        if (dwmLib) FreeLibrary(dwmLib);
         GdiplusShutdown(gdiplusToken);
         CoUninitialize();
         ExitProcess(1);
@@ -1541,7 +1531,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         }
     }
 
-    if (dwmLib) FreeLibrary(dwmLib);
     GdiplusShutdown(gdiplusToken);
     ReleaseMutex(hMutex);
     CloseHandle(hMutex);
