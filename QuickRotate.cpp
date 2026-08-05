@@ -1,5 +1,5 @@
 /*
-  Quick Rotate v6.1 by ArKT | Modern Display Orientation Tool/Utility for Windows
+  Quick Rotate v6.2 by ArKT | Modern Display Orientation Tool/Utility for Windows
   Copyright (c) 2026 ArKT-7 (https://github.com/ArKT-7/QuickRotate)
   Build: windres QuickRotate.rc -O coff -o QuickRotate_res.o; g++ QuickRotate.cpp QuickRotate_res.o -o QuickRotate.exe -static -nostartfiles -e _WinMain@16 -Os -s -fno-exceptions -fno-rtti -fno-stack-protector -fomit-frame-pointer "-Wl,--gc-sections" -lgdi32 -luser32 -lgdiplus -lshlwapi -lshell32 -lole32 -luuid -ladvapi32 -mwindows
 */
@@ -79,7 +79,7 @@ using namespace Gdiplus;
 #define ID_SC_FLIPPORT    4004
 #define ID_SC_APP         4005
 
-const wchar_t* AppTitle = L"Quick Rotate v6.1";
+const wchar_t* AppTitle = L"Quick Rotate v6.2";
 const wchar_t* AppClass = L"ArKT_QuickRotate";
 
 HFONT hFontBold = NULL;
@@ -339,6 +339,35 @@ HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
         psl->Release();
     }
     return hres;
+}
+
+void EnsureStartMenuShortcut() {
+    wchar_t szStartMenu[MAX_PATH];
+    if (FAILED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, szStartMenu))) return;
+    wchar_t szLinkPath[MAX_PATH];
+    wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", szStartMenu);
+
+    if (GetFileAttributesW(szLinkPath) != INVALID_FILE_ATTRIBUTES) return;
+
+    HRESULT hres;
+    IShellLink* psl;
+    wchar_t exePath[MAX_PATH];
+    
+    EnsureInstalled(exePath, false);
+
+    hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl);
+    if (SUCCEEDED(hres)) {
+        IPersistFile* ppf;
+        psl->SetPath(exePath);
+        psl->SetDescription(L"Quick Rotate");
+        psl->SetIconLocation(exePath, 0);
+        hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
+        if (SUCCEEDED(hres)) { 
+            ppf->Save(szLinkPath, TRUE); 
+            ppf->Release(); 
+        }
+        psl->Release();
+    }
 }
 
 void ManageShortcut(int index, bool create) {
@@ -1345,6 +1374,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
     RefreshTheme(NULL);
     InitSettingsPath();
+    EnsureStartMenuShortcut();
 
     if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
         SaveSettings();
