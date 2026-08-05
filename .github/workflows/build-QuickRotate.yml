@@ -10,6 +10,12 @@ on:
       - 'QuickRotate.rc'
       - 'icon.ico'
   workflow_dispatch:
+    inputs:
+      make_release:
+        description: 'Create a Release?'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -76,7 +82,15 @@ jobs:
           echo "BUILD_DATE=$date" >> $env:GITHUB_ENV
           echo "BUILD_TIME=$time" >> $env:GITHUB_ENV
 
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: QuickRotate-${{ env.APP_VERSION }}
+          path: QuickRotate.exe
+          retention-days: 7
+
       - name: Generate Release Notes
+        if: github.event_name == 'push' || inputs.make_release == true
         shell: pwsh
         run: |
           $repo = "${{ github.repository }}"
@@ -128,6 +142,7 @@ jobs:
           [System.IO.File]::WriteAllText("release_notes.md", $body)
 
       - name: Create Release
+        if: github.event_name == 'push' || inputs.make_release == true
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.APP_VERSION }}
