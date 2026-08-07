@@ -162,9 +162,12 @@ void RefreshTheme(HWND h) {
 
 const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
 const wchar_t* CURRENT_VER = VERSION_W;
+const wchar_t* UNINSTALL_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ArKT_QuickRotate";
 void UpdateLayout(HWND h);
 void PerformUpdateCheck(HWND h);
 void PerformDownload(HWND h);
+void UpdateAutoStartRegistry(bool enable);
+void GetLinkPath(wchar_t* outPath, const wchar_t* name);
 
 struct Threadupdt {
     HWND hWnd;
@@ -282,6 +285,39 @@ void InitSettingsPath() {
     }
 }
 
+void RegSetStr(HKEY hKey, LPCWSTR name, LPCWSTR val) {
+    RegSetValueExW(hKey, name, 0, REG_SZ, (const BYTE*)val, (lstrlenW(val) + 1) * sizeof(wchar_t));
+}
+
+void RegisterUninstaller(const wchar_t* exePath) {
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
+        return;
+
+    wchar_t uninstallCmd[MAX_PATH + 32];
+    wnsprintfW(uninstallCmd, MAX_PATH + 32, L"\"%s\" -nuke", exePath);
+
+    RegSetStr(hKey, L"DisplayName", L"Quick Rotate");
+    RegSetStr(hKey, L"DisplayVersion", CURRENT_VER);
+    RegSetStr(hKey, L"Publisher", L"ArKT-7");
+    RegSetStr(hKey, L"DisplayIcon", exePath);
+    RegSetStr(hKey, L"InstallLocation", exePath);
+    RegSetStr(hKey, L"UninstallString", uninstallCmd);
+    RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/ArKT-7/QuickRotate");
+
+    DWORD one = 1;
+    RegSetValueExW(hKey, L"NoModify", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
+    RegSetValueExW(hKey, L"NoRepair", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
+
+    WIN32_FILE_ATTRIBUTE_DATA fad;
+    if (GetFileAttributesExW(exePath, GetFileExInfoStandard, &fad)) {
+        ULONGLONG bytes = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+        DWORD sizeKB = (DWORD)(bytes / 1024);
+        RegSetValueExW(hKey, L"EstimatedSize", 0, REG_DWORD, (const BYTE*)&sizeKB, sizeof(sizeKB));
+    }
+    RegCloseKey(hKey);
+}
+
 bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
     if (GetStableExePath(finalPath)) {
         if (forceUpdate || GetFileAttributesW(finalPath) == INVALID_FILE_ATTRIBUTES) {
@@ -290,9 +326,82 @@ bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
                 CopyFileW(current, finalPath, FALSE);
             }
         }
+
+        HKEY hCheck;
+        bool bNeedsReg = true;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, KEY_READ, &hCheck) == ERROR_SUCCESS) {
+            wchar_t regVer[64] = {0};
+            DWORD size = sizeof(regVer);
+            if (RegQueryValueExW(hCheck, L"DisplayVersion", NULL, NULL, (LPBYTE)regVer, &size) == ERROR_SUCCESS) {
+                if (lstrcmpW(regVer, CURRENT_VER) == 0) {
+                    bNeedsReg = false;
+                }
+            }
+            RegCloseKey(hCheck);
+        }
+
+        if (bNeedsReg) {
+            RegisterUninstaller(finalPath);
+        }
+        
         return true;
     }
     return false;
+}
+
+void RunUninstall() {
+    if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+        return; 
+    }
+
+    HWND hExisting = FindWindowW(AppClass, NULL);
+    if (hExisting) {
+        SendMessageW(hExisting, WM_COMMAND, ID_TRAY_EXIT, 0);
+        for(int i = 0; i < 20; i++) {
+            if (!FindWindowW(AppClass, NULL)) break;
+            Sleep(50);
+        }
+    }
+
+    wchar_t exePath[MAX_PATH];
+    GetStableExePath(exePath);
+
+    UpdateAutoStartRegistry(false);
+
+    LPCWSTR shortcutNames[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
+    for (int i = 0; i < 6; i++) {
+        wchar_t path[MAX_PATH];
+        GetLinkPath(path, shortcutNames[i]);
+        DeleteFileW(path);
+    }
+
+    wchar_t szStartMenu[MAX_PATH];
+    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, szStartMenu))) {
+        wchar_t szLinkPath[MAX_PATH];
+        wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", szStartMenu);
+        DeleteFileW(szLinkPath);
+    }
+
+    DeleteFileW(iniPath);
+    RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH);
+
+    MessageBoxW(NULL, L"Quick Rotate was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
+
+    wchar_t appDir[MAX_PATH];
+    GetAppDataPath(appDir, NULL);
+    
+    wchar_t cmdLine[MAX_PATH * 3 + 128];
+    wnsprintfW(cmdLine, MAX_PATH * 3 + 128,
+        L"/c cd \\ & ping 127.0.0.1 -n 3 > nul & del /f /q \"%s\" & ping 127.0.0.1 -n 2 > nul & rmdir /s /q \"%s\"",
+        exePath, appDir);
+
+    SHELLEXECUTEINFOW sei = {0};
+    sei.cbSize = sizeof(sei);
+    sei.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
+    sei.lpFile = L"cmd.exe";
+    sei.lpParameters = cmdLine;
+    sei.nShow = SW_HIDE;
+    if (ShellExecuteExW(&sei) && sei.hProcess) CloseHandle(sei.hProcess);
 }
 
 void UpdateAutoStartRegistry(bool enable) {
@@ -1412,6 +1521,12 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         if (IsArg(cmd, L"-tray")) {
             bSilentStart = true;
         } 
+        else if (IsArg(cmd, L"-nuke")) {
+            RunUninstall();
+            GdiplusShutdown(gdiplusToken);
+            CoUninitialize();
+            ExitProcess(0);
+        }
         else {
             if (IsArg(cmd, L"next") || IsArg(cmd, L"rotate")) {
                 SetRot(-1);

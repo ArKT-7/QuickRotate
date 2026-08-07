@@ -1,11 +1,13 @@
 # <sub>[<img src="./icon.ico" width="40" height="40">](https://github.com/ArKT-7/QuickRotate/releases/latest)</sub> Quick Rotate
-### Ultra-Lightweight & Modern Screen Rotation Utility for Windows
+### A modern, ultra-lightweight screen rotation utility for Windows.
 
 ---
 
 ## 🌟 Overview
 
-**Quick Rotate** is a professional, high-performance display orientation utility, it offers a modern Windows 11-inspired interface for fast, reliable direct monitor rotation without installation or external dependencies. ⚡
+**Quick Rotate** is a standalone desktop utility built for fast, reliable display orientation management. Written entirely in pure C++ using the native Win32 API and GDI+, it delivers a custom Windows 11-style graphical interface without the overhead of heavy runtimes or bulky external frameworks.
+
+**Thanks to this native approach (fr),** it compiles into a single, statically-linked x86 executable (only ~60KB in size), ensuring universal compatibility across Windows 32-bit, 64-bit, and Windows on ARM (WoA) via native OS emulation.⚡
 
 ---
 ## 📥 [Download Latest Version Here!](https://github.com/ArKT-7/QuickRotate/releases/latest)
@@ -13,20 +15,18 @@
 
 ## ✨ Features
 
-- ✅ **Minimalist Footprint:** Highly optimized executable at only **`~50KB`**
-- ✅ **Cross-Platform Compatibility:** Supports **x86, x64, and ARM32** architectures
-- ✅ **Native Compilation:** Written entirely in C++ and compiles with **g++ (MinGW)**
-- ✅ **Modern Aesthetics:** Anti-aliased icons, rounded corners, and Windows 11 style rendering
-- ✅ **Smart Tray Integration:** Full background operation with a customizable **3-way interaction switcher**
-- ✅ **One-Click Shortcuts:** Generate desktop icons for instant specific rotations
-- ✅ **Zero Dependencies:** No installation, .NET, or external DLLs required
+- **Zero Dependencies:** A single `.exe` file. No background services, DLLs, or runtimes required.
+- **Modern UI:** Custom Custom built GDI+ interface featuring anti-aliased icons, rounded corners, and dynamic tracking of Windows Immersive Dark/Light modes.
+- **Tray Integration:** Can Runs silently in the background with a customizable tray icon click action [and more...](https://github.com/ArKT-7/QuickRotate/blob/main/README.md#3-%EF%B8%8F-system-tray--context-menu)
+* **Self-Updating:** Includes a built-in updater that grabs and applies new versions right from GitHub releases.
+- **CLI Support:** Automate rotations using command-line arguments for scripts and batch files.
 
 ---
 
 ## 📝 Usage Guide
 
 ### 1. 🖥️ Main Interface & Orientations
- **`The main control panel offers five core actions for your display:`**
+ **`The main app panel offers five actions for your display:`**
 * **Landscape:** Resets display to the default **`horizontal view`**
 * **Portrait:** Sets display to **`vertical (90°)`**
 * **Rotate Clockwise:** Cycles to the next available orientation **`(↻)`**
@@ -47,7 +47,7 @@
  **`The tray icon provides fast access to rotation without opening the main window:`**
 
 * **Left-Click:** Triggers your chosen **`Tray Click Mode`**.
-* **Right-Click:** Opens a custom **Owner-Drawn Menu** for direct control:
+* **Right-Click:** Opens a custom **Custom built Menu** for direct control:
     * **Quick Access:** Select any specific rotation directly from the list.
     * **Restore Window:** Returns the main control panel to the center of your screen.
     * **Exit:** Fully terminates the application.
@@ -64,6 +64,18 @@
 | `QuickRotate.exe 180` | Sets display to **Flipped Landscape**. |
 | `QuickRotate.exe 270` | Sets display to **Flipped Portrait**. |
 | `QuickRotate.exe next` | Rotates to the **Next** orientation in the cycle. |
+| `QuickRotate.exe -tray` | Launches the application silently to the system tray. |
+
+---
+
+## 🗑️ Uninstalling
+
+Quick Rotate acts as a portable application, but registers itself in **Settings → Apps → Installed apps** (or Control Panel's **Programs and Features**) under the name **Quick Rotate**, just like a normal installed application. To remove it:
+
+1. Open **Settings → Apps → Installed apps**.
+2. Find **Quick Rotate** and select **Uninstall**.
+
+This removes the autostart entry, all Start Menu/Desktop shortcuts, the settings file, and the copied program files.
 
 ---
 
@@ -82,4 +94,4 @@ If you find my projects helpful, consider supporting my work! Your contributions
 
 ---
 
-### 🎉 Efficiency meets elegance with Quick Rotate v6.1!
+### 🎉 Efficiency meets elegance (xD) with Quick Rotate v6.2!
