@@ -8,7 +8,7 @@ on:
       - 'version.h'
       - 'QuickRotate.cpp'
       - 'QuickRotate.rc'
-      - 'icon.ico'
+      - 'assets/icon.ico'
   workflow_dispatch:
     inputs:
       make_release:
@@ -90,7 +90,7 @@ jobs:
           retention-days: 7
 
       - name: Generate Release Notes
-        if: github.event_name == 'push' || inputs.make_release == true
+        if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')) || (github.event_name == 'workflow_dispatch' && inputs.make_release == true)
         shell: pwsh
         run: |
           $repo = "${{ github.repository }}"
@@ -120,7 +120,7 @@ jobs:
 
           ---
           
-          ## <a href="https://github.com/$repo/releases/download/v$ver/$file"><img src="https://github.com/$repo/blob/main/icon.ico" width="36" height="36" align="absmiddle"></a> [``Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
+          ## <a href="https://github.com/$repo/releases/download/v$ver/$file"><img src="https://github.com/$repo/blob/main/assets/icon.png" width="36" height="36" align="absmiddle"></a> [``Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
 
           ---
 
@@ -142,7 +142,7 @@ jobs:
           [System.IO.File]::WriteAllText("release_notes.md", $body)
 
       - name: Create Release
-        if: github.event_name == 'push' || inputs.make_release == true
+        if: (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]')) || (github.event_name == 'workflow_dispatch' && inputs.make_release == true)
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ env.APP_VERSION }}

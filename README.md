@@ -1,4 +1,4 @@
-# <sub>[<img src="./icon.ico" width="40" height="40">](https://github.com/ArKT-7/QuickRotate/releases/latest)</sub> Quick Rotate
+# <sub>[<img src="./assets/icon.png" width="40" height="40">](https://github.com/ArKT-7/QuickRotate/releases/latest)</sub> Quick Rotate
 ### A modern, ultra-lightweight screen rotation utility for Windows.
 
 ---
