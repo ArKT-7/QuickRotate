@@ -44,16 +44,30 @@ int S(int value) {
     return MulDiv(value, g_dpi, 96);
 }
 
+static inline void SetCtrlFont(HWND h, HFONT f) {
+    SendMessageW(h, WM_SETFONT, (WPARAM)f, TRUE);
+}
+
+static inline void ForceRedraw(HWND h, bool children = false) {
+    UINT flags = RDW_INVALIDATE | RDW_UPDATENOW;
+    if (children) flags |= RDW_ALLCHILDREN;
+    RedrawWindow(h, NULL, NULL, flags);
+}
+
 using namespace Gdiplus;
 
-#define WIN_W  339
+#define WIN_W  338
 #define WIN_H  480
 #define BTN_W  290
 #define BTN_H  60
 #define BTN_SH 40
-#define BTN_X  21
+#define BTN_X  22
 #define CORNER_RADIUS 10
 
+#define SETTINGS_Y (20 + (5 * (BTN_H + 15)) - 5)
+#define STATUS_Y   (SETTINGS_Y + BTN_SH)
+
+#define WM_POST_INIT      (WM_USER + 101)
 #define WM_TRAYICON       (WM_USER + 100)
 #define ID_TRAY_RESTORE   2001
 #define ID_TRAY_EXIT      2002
@@ -79,8 +93,10 @@ using namespace Gdiplus;
 #define ID_SC_FLIPPORT    4004
 #define ID_SC_APP         4005
 
+const wchar_t* AppName  = L"Quick Rotate";
 const wchar_t* AppTitle = L"Quick Rotate v6.2";
 const wchar_t* AppClass = L"ArKT_QuickRotate";
+const wchar_t* SC_NAMES[] = { L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", AppName };
 
 HFONT hFontBold = NULL;
 HFONT hFontNormal = NULL;
@@ -120,14 +136,25 @@ HWND hLblNewVer = NULL;
 HWND hBtnDownload = NULL;
 HWND hProgress = NULL;
 wchar_t g_downloadUrl[512] = {0};
-HMODULE g_hUrlMon = NULL, g_hWinInet = NULL;
+HMODULE g_hUrlMon = NULL, g_hWinInet = NULL, g_hDwm = NULL;
 typedef HRESULT (WINAPI *tUD)(LPUNKNOWN, LPCWSTR, LPCWSTR, DWORD, LPVOID);
 typedef HRESULT (WINAPI *tOS)(LPUNKNOWN, LPCWSTR, IStream**, DWORD, LPVOID);
 typedef BOOL    (WINAPI *tDC)(LPCWSTR);
+typedef HRESULT (WINAPI *tDWM)(HWND, DWORD, LPCVOID, DWORD);
+tDWM g_pfnDwmSetAttr = NULL;
 tUD g_pDownload = NULL;
 tOS g_pOpenStream = NULL;
 tDC g_pDelCache = NULL;
 int g_currentMonNum = 1;
+
+static inline void CleanExit(int code = 0) {
+    if (g_hDwm) FreeLibrary(g_hDwm);
+    if (g_hUrlMon) FreeLibrary(g_hUrlMon);
+    if (g_hWinInet) FreeLibrary(g_hWinInet);
+    GdiplusShutdown(gdiplusToken);
+    CoUninitialize();
+    ExitProcess(code);
+}
 
 void RefreshTheme(HWND h) {
     DWORD lightModeVal = 1;
@@ -145,15 +172,9 @@ void RefreshTheme(HWND h) {
     g_hBrBkgnd = CreateSolidBrush(b_IsDarktheme ? RGB(32, 32, 32) : RGB(240, 240, 240));
 
     if (h) {
-        HMODULE lib = LoadLibraryW(L"dwmapi.dll");
-        if (lib) {
-            typedef HRESULT (WINAPI *set_attr_t)(HWND, DWORD, LPCVOID, DWORD);
-            set_attr_t set_attr = (set_attr_t)GetProcAddress(lib, "DwmSetWindowAttribute");
-            
-            if (set_attr) {
-                BOOL dark = b_IsDarktheme;
-                set_attr(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
-            }
+        if (g_pfnDwmSetAttr) {
+            BOOL dark = b_IsDarktheme;
+            g_pfnDwmSetAttr(h, DWMWA_USE_IMMERSIVE_DARK_MODE, &dark, sizeof(dark));
         }
         SetClassLongPtr(h, GCLP_HBRBACKGROUND, (LONG_PTR)g_hBrBkgnd);
         InvalidateRect(h, NULL, TRUE);
@@ -169,25 +190,17 @@ void PerformDownload(HWND h);
 void UpdateAutoStartRegistry(bool enable);
 void GetLinkPath(wchar_t* outPath, const wchar_t* name);
 
-struct Threadupdt {
-    HWND hWnd;
-};
-
 DWORD WINAPI CheckUpdateThread(LPVOID lpParam) {
-    Threadupdt* x = (Threadupdt*)lpParam;
-    if (x) {
-        PerformUpdateCheck(x->hWnd);
-        HeapFree(GetProcessHeap(), 0, x);
-    }
+    CoInitialize(NULL);
+    PerformUpdateCheck((HWND)lpParam);
+    CoUninitialize();
     return 0;
 }
 
 DWORD WINAPI DownloadThread(LPVOID lpParam) {
-    Threadupdt* x = (Threadupdt*)lpParam;
-    if (x) {
-        PerformDownload(x->hWnd);
-        HeapFree(GetProcessHeap(), 0, x);
-    }
+    CoInitialize(NULL);
+    PerformDownload((HWND)lpParam);
+    CoUninitialize();
     return 0;
 }
 
@@ -235,19 +248,19 @@ LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     int id = GetDlgCtrlID(h);
     if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
-        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+        ForceRedraw(h);
     }
     if (m == WM_MOUSEMOVE) {
         if (hHover != h) {
             hHover = h;
-            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW); 
+            ForceRedraw(h); 
             TRACKMOUSEEVENT t = {sizeof(t), TME_LEAVE, h, 0};
             TrackMouseEvent(&t);
         }
     }
     else if (m == WM_MOUSELEAVE) {
         hHover = NULL;
-        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+        ForceRedraw(h);
     }
     return CallWindowProc(oldBtnProc, h, m, w, l);
 }
@@ -262,15 +275,10 @@ HWND CreateMyButton(HWND parent, LPCWSTR text, int id, int x, int y, int w, int 
 
 bool GetAppDataPath(wchar_t* outPath, const wchar_t* appendFile) {
     if (FAILED(SHGetFolderPathW(NULL, CSIDL_APPDATA, NULL, 0, outPath))) return false;
-    PathAppendW(outPath, L"ArKT_QuickRotate");
+    PathAppendW(outPath, AppClass);
     CreateDirectoryW(outPath, NULL);
     if (appendFile) PathAppendW(outPath, appendFile);
     return true;
-}
-
-wchar_t MyToLower(wchar_t c) {
-    if (c >= L'A' && c <= L'Z') return c + (L'a' - L'A');
-    return c;
 }
 
 bool GetStableExePath(wchar_t* outPath) {
@@ -297,7 +305,7 @@ void RegisterUninstaller(const wchar_t* exePath) {
     wchar_t uninstallCmd[MAX_PATH + 32];
     wnsprintfW(uninstallCmd, MAX_PATH + 32, L"\"%s\" -nuke", exePath);
 
-    RegSetStr(hKey, L"DisplayName", L"Quick Rotate");
+    RegSetStr(hKey, L"DisplayName", AppName);
     RegSetStr(hKey, L"DisplayVersion", CURRENT_VER);
     RegSetStr(hKey, L"Publisher", L"ArKT-7");
     RegSetStr(hKey, L"DisplayIcon", exePath);
@@ -368,10 +376,9 @@ void RunUninstall() {
 
     UpdateAutoStartRegistry(false);
 
-    LPCWSTR shortcutNames[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
     for (int i = 0; i < 6; i++) {
         wchar_t path[MAX_PATH];
-        GetLinkPath(path, shortcutNames[i]);
+        GetLinkPath(path, SC_NAMES[i]);
         DeleteFileW(path);
     }
 
@@ -412,9 +419,9 @@ void UpdateAutoStartRegistry(bool enable) {
             EnsureInstalled(exePath, true); 
             wchar_t cmd[MAX_PATH + 20];
             wnsprintfW(cmd, MAX_PATH + 20, L"\"%s\" -tray", exePath);
-            RegSetValueExW(hKey, L"ArKT_QuickRotate", 0, REG_SZ, (LPBYTE)cmd, (lstrlenW(cmd) + 1) * sizeof(wchar_t));
+            RegSetValueExW(hKey, AppClass, 0, REG_SZ, (LPBYTE)cmd, (lstrlenW(cmd) + 1) * sizeof(wchar_t));
         } else {
-            RegDeleteValueW(hKey, L"ArKT_QuickRotate");
+            RegDeleteValueW(hKey, AppClass);
         }
         RegCloseKey(hKey);
     }
@@ -468,7 +475,7 @@ void EnsureStartMenuShortcut() {
     if (SUCCEEDED(hres)) {
         IPersistFile* ppf;
         psl->SetPath(exePath);
-        psl->SetDescription(L"Quick Rotate");
+        psl->SetDescription(AppName);
         psl->SetIconLocation(exePath, 0);
         hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
         if (SUCCEEDED(hres)) { 
@@ -480,14 +487,13 @@ void EnsureStartMenuShortcut() {
 }
 
 void ManageShortcut(int index, bool create) {
-    LPCWSTR names[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
     LPCWSTR args[]  = {L"next", L"0", L"90", L"180", L"270", L""};
     
     if (create) {
-        CreateLink(args[index], names[index], names[index]);
+        CreateLink(args[index], SC_NAMES[index], SC_NAMES[index]);
     } else {
         wchar_t path[MAX_PATH];
-        GetLinkPath(path, names[index]);
+        GetLinkPath(path, SC_NAMES[index]);
         DeleteFileW(path);
     }
 }
@@ -646,11 +652,11 @@ void UpdateLayout(HWND h) {
         }
     };
 
-    for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * 75), BTN_H);
-    mv(hBtnSettings, 390, BTN_SH);
+    for (int i = 0; i < 5; i++) mv(hBtnRot[i], 20 + (i * (BTN_H + 15)), BTN_H);
+    mv(hBtnSettings, SETTINGS_Y, BTN_SH);
     int half = (BTN_W - 10) / 2;
-    mv(hSetControls[0], 390, BTN_SH, half);
-    mv(hSetControls[11], 390, BTN_SH, half, BTN_X + half + 10);
+    mv(hSetControls[0], SETTINGS_Y, BTN_SH, half);
+    mv(hSetControls[11], SETTINGS_Y, BTN_SH, half, BTN_X + half + 10);
 
     mv(hSetControls[1], 20, 30);
     mv(hSetControls[2], 60, 30);
@@ -698,13 +704,12 @@ void ToggleUpdateView(HWND h, bool show) {
     EndDeferWindowPos(hdwp);
 
     if (show) {
-        Threadupdt* params = (Threadupdt*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Threadupdt));
-        params->hWnd = h;
-        CreateThread(NULL, 0, CheckUpdateThread, params, 0, NULL);
+        HANDLE hThread = CreateThread(NULL, 0, CheckUpdateThread, (LPVOID)h, 0, NULL);
+        if (hThread) CloseHandle(hThread);
     }
     
     SendMessageW(h, WM_SETREDRAW, TRUE, 0);
-    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    ForceRedraw(h, true);
 }
 
 void ToggleViewMode(HWND h) {
@@ -718,10 +723,9 @@ void ToggleViewMode(HWND h) {
     bSettingsMode = !bSettingsMode;
 
     if (bSettingsMode) {
-        LPCWSTR names[] = {L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", L"Quick Rotate"};
         for(int i=0; i<6; i++) {
             wchar_t path[MAX_PATH];
-            GetLinkPath(path, names[i]);
+            GetLinkPath(path, SC_NAMES[i]);
             bShortcutsState[i] = (GetFileAttributesW(path) != INVALID_FILE_ATTRIBUTES);
         }
     }
@@ -751,7 +755,7 @@ void ToggleViewMode(HWND h) {
     }
     
     SendMessageW(h, WM_SETREDRAW, TRUE, 0);
-    RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN);
+    ForceRedraw(h, true);
 }
 
 void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFilled) {
@@ -759,19 +763,19 @@ void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFille
     SolidBrush brush(c);
     GraphicsPath p;
 
-    if (id >= 100 && id <= 103) {
+    if (id >= ID_BTN_LANDSCAPE && id <= ID_BTN_FLIPPORT) {
         int ss = s * 0.67, pad = (s - ss) / 2;
         Rect r = (id % 2 == 0) ? Rect(x, y + pad, s, ss) : Rect(x + pad, y, ss, s);
         int gw = S(1), L = r.X, T = r.Y, R = r.GetRight(), B = r.GetBottom();
         int cx = r.X + r.Width / 2, cy = r.Y + r.Height / 2;
 
-        if (id == 100) {
+        if (id == ID_BTN_LANDSCAPE) {
             p.AddLine(R, cy + gw, R, B); p.AddLine(R, B, L, B); 
             p.AddLine(L, B, L, T); p.AddLine(L, T, R, T); p.AddLine(R, T, R, cy - gw);
-        } else if (id == 102) {
+        } else if (id == ID_BTN_FLIPPED) {
             p.AddLine(L, cy - gw, L, T); p.AddLine(L, T, R, T); 
             p.AddLine(R, T, R, B); p.AddLine(R, B, L, B); p.AddLine(L, B, L, cy + gw);
-        } else if (id == 103) {
+        } else if (id == ID_BTN_FLIPPORT) {
             p.AddLine(cx + gw, T, R, T); p.AddLine(R, T, R, B); 
             p.AddLine(R, B, L, B); p.AddLine(L, B, L, T); p.AddLine(L, T, cx - gw, T);
         } else {
@@ -780,7 +784,7 @@ void DrawProIcon(Graphics& g, int id, int x, int y, int s, Color c, bool isFille
         }
         if (isFilled) g.FillPath(&brush, &p); else g.DrawPath(&pen, &p);
     }
-    else if (id == 105) {
+    else if (id == ID_BTN_NEXT) {
         int k = S(1); 
         Rect r(x + k, y + k, s - 2*k, s - 2*k);
         pen.SetEndCap(LineCapArrowAnchor);
@@ -828,9 +832,22 @@ int CompareVersion(const wchar_t* v1, const wchar_t* v2) {
 }
 
 void PerformUpdateCheck(HWND h) {
+    if (!g_hUrlMon) {
+        g_hUrlMon = LoadLibraryW(L"urlmon.dll");
+        if (g_hUrlMon) {
+            g_pDownload = (tUD)GetProcAddress(g_hUrlMon, "URLDownloadToFileW");
+            g_pOpenStream = (tOS)GetProcAddress(g_hUrlMon, "URLOpenBlockingStreamW");
+        }
+    }
+    if (!g_hWinInet) {
+        g_hWinInet = LoadLibraryW(L"wininet.dll");
+        if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
+    }
+
     if (!g_pDownload) { SetWindowTextW(hLblStatus, L"Error: Missing DLL"); return; }
+    if (!IsWindow(hLblStatus)) return;
     ShowWindow(hBtnDownload, SW_HIDE);
-    SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+    SetCtrlFont(hLblStatus, hFontTitle);
     SetWindowTextW(hLblStatus, L"Checking...");
     SetWindowTextW(hLblCurVer, L"");
     SetWindowTextW(hLblNewVer, L"");
@@ -851,6 +868,7 @@ void PerformUpdateCheck(HWND h) {
     }
 
     if (SUCCEEDED(hr)) {
+        if (!IsWindow(hLblStatus)) return;
         HANDLE hF = CreateFileW(path, GENERIC_READ, 1, NULL, 3, 0, NULL);
         if (hF != INVALID_HANDLE_VALUE) {
             char buf[4096] = {0}; DWORD br;
@@ -862,7 +880,7 @@ void PerformUpdateCheck(HWND h) {
             GetVal(buf, "BUILD", rbS);
             int remB = (int)wcstol(rbS, NULL, 10);
             int locB = atoi(BUILD);
-            SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+            SetCtrlFont(hLblCurVer, hFontBold);
             wchar_t cur[64]; wnsprintfW(cur, 64, L"Current: %s", VERSION_W);
             SetWindowTextW(hLblCurVer, cur);
             int verDiff = CompareVersion(ver, VERSION_W);
@@ -873,14 +891,14 @@ void PerformUpdateCheck(HWND h) {
                 SetWindowTextW(hProgress, L"Invalid server data.");
             } 
             else if (isNewer) {
-                SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+                SetCtrlFont(hLblStatus, hFontTitle);
                 SetWindowTextW(hLblStatus, L"Update Available!");
-                SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+                SetCtrlFont(hLblNewVer, hFontBold);
                 wchar_t neu[64]; 
                 if (verDiff == 0 && remB > locB) wnsprintfW(neu, 64, L"New: %s (Rev %d)", ver, remB);
                 else wnsprintfW(neu, 64, L"New: %s", ver);
                 SetWindowTextW(hLblNewVer, neu);
-                SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+                SetCtrlFont(hProgress, hFontBold);
                 SetWindowTextW(hProgress, L"Ready to Download");
                 ShowWindow(hBtnDownload, SW_SHOW);
                 EnableWindow(hBtnDownload, TRUE);
@@ -900,6 +918,7 @@ void PerformUpdateCheck(HWND h) {
 
 void PerformDownload(HWND h) {
     if (!g_pOpenStream) return;
+    if (!IsWindow(hLblStatus)) return;
 
     EnableWindow(hBtnDownload, FALSE);
     EnableWindow(hSetControls[0], FALSE);
@@ -907,9 +926,9 @@ void PerformDownload(HWND h) {
     InvalidateRect(hBtnDownload, NULL, FALSE);
     InvalidateRect(hSetControls[0], NULL, FALSE);
     InvalidateRect(hSetControls[11], NULL, FALSE);
-    SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+    SetCtrlFont(hLblStatus, hFontTitle);
     SetWindowTextW(hLblStatus, L"Starting Download...");
-    SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontBold, TRUE);
+    SetCtrlFont(hProgress, hFontBold);
     SetWindowTextW(hProgress, L"Initializing...");
 
     IStream* pStream = NULL;
@@ -943,6 +962,8 @@ void PerformDownload(HWND h) {
             }
         }
         CloseHandle(hOut); pStream->Release();
+
+        if (!IsWindow(hLblStatus)) return;
 
         SetWindowTextW(hLblStatus, L"Installing Update...");
         SetWindowTextW(hProgress, L"Restarting app...");
@@ -987,6 +1008,15 @@ void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
 
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
+    case WM_POST_INIT: {
+        EnsureStartMenuShortcut();
+        bool isSilent = (bool)w;
+        if (!isSilent && !bUpdateMode && bAutoStart) {
+            wchar_t dummy[MAX_PATH];
+            EnsureInstalled(dummy, false);
+        }
+        return 0;
+    }
     case WM_ERASEBKGND: {
         HDC dc = (HDC)w;
         RECT rc;
@@ -1017,17 +1047,17 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             L"Rotate Clockwise\n(Next \u27F3)",
             L"Flipped Landscape\n(Upside Down)",
             L"Flipped Portrait\n(Left 270\u00B0)"};
-        int ids[] = { 100, 101, 105, 102, 103 };
+        int ids[] = { ID_BTN_LANDSCAPE, ID_BTN_PORTRAIT, ID_BTN_NEXT, ID_BTN_FLIPPED, ID_BTN_FLIPPORT };
 
         for (int i = 0; i < 5; i++) {
-            hBtnRot[i] = CreateMyButton(h, txt[i], ids[i], BTN_X, 20 + (i * 75), BTN_W, BTN_H, WS_VISIBLE | WS_TABSTOP);
+            hBtnRot[i] = CreateMyButton(h, txt[i], ids[i], BTN_X, 20 + (i * (BTN_H + 15)), BTN_W, BTN_H, WS_VISIBLE | WS_TABSTOP);
         }
 
-        hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, 390, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP);
+        hBtnSettings = CreateMyButton(h, L"\u2699 Settings", ID_BTN_SETTINGS, BTN_X, SETTINGS_Y, BTN_W, BTN_SH, WS_VISIBLE | BS_PUSHBUTTON | WS_TABSTOP);
 
         int halfW = (BTN_W - 10) / 2;
-        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, 390, halfW, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
-        hSetControls[11] = CreateMyButton(h, L"Check Update", ID_BTN_UPDATE, BTN_X + halfW + 10, 390, halfW, BTN_SH, WS_TABSTOP);
+        hSetControls[0] = CreateMyButton(h, L"\u2B05 Back", ID_BTN_BACK, BTN_X, SETTINGS_Y, halfW, BTN_SH, BS_PUSHBUTTON | WS_TABSTOP);
+        hSetControls[11] = CreateMyButton(h, L"Check Update", ID_BTN_UPDATE, BTN_X + halfW + 10, SETTINGS_Y, halfW, BTN_SH, WS_TABSTOP);
         struct TogData { int idx; LPCWSTR txt; int id; int y; };
         LPCWSTR trayText;
         if (bTrayToggleLP == 1) trayText = L"Tray Click: Landscape \u2194 Portrait";
@@ -1063,26 +1093,26 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         
         hLblStatus = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
         oldstaticProc = (WNDPROC)SetWindowLongPtr(hLblStatus, GWLP_WNDPROC, (LONG_PTR)StaticProc);
-        SendMessageW(hLblStatus, WM_SETFONT, (WPARAM)hFontTitle, TRUE);
+        SetCtrlFont(hLblStatus, hFontTitle);
 
         hLblCurVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
         SetWindowLongPtr(hLblCurVer, GWLP_WNDPROC, (LONG_PTR)StaticProc);
-        SendMessageW(hLblCurVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+        SetCtrlFont(hLblCurVer, hFontHeader);
 
         hLblNewVer = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
         SetWindowLongPtr(hLblNewVer, GWLP_WNDPROC, (LONG_PTR)StaticProc);
-        SendMessageW(hLblNewVer, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+        SetCtrlFont(hLblNewVer, hFontHeader);
 
         hProgress = CreateWindowW(L"STATIC", L"", WS_CHILD | SS_CENTER, 0, 0, 0, 0, h, NULL, NULL, NULL);
         SetWindowLongPtr(hProgress, GWLP_WNDPROC, (LONG_PTR)StaticProc);
-        SendMessageW(hProgress, WM_SETFONT, (WPARAM)hFontHeader, TRUE);
+        SetCtrlFont(hProgress, hFontHeader);
 
         hBtnDownload = CreateMyButton(h, L"Download && Install", ID_BTN_DOWNLOAD, 0, 0, 0, 0, BS_PUSHBUTTON);
 
         nid.cbSize = sizeof(NOTIFYICONDATAW); nid.hWnd = h; nid.uID = 1001; nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP; nid.uCallbackMessage = WM_TRAYICON;
         nid.hIcon = hIconSm;
         
-        wnsprintfW(nid.szTip, 128, L"%s", AppTitle);
+        lstrcpynW(nid.szTip, AppTitle, 128);
         return 0;
     }
 
@@ -1105,7 +1135,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             hLastMon = hNewMon;
             UpdateCurrentRotation();
             g_currentMonNum = GetLogicalMonitorIndex(hNewMon);
-            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            ForceRedraw(h);
         }
         return 0;
     }
@@ -1117,7 +1147,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             MoveToMonitorCenter(h, hMon);
             g_currentMonNum = GetLogicalMonitorIndex(hMon);
         }
-        RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+        ForceRedraw(h);
         return 0;
     }
 
@@ -1196,11 +1226,11 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                     Pen fp(Color(150, 150, 150), 1); fp.SetDashStyle(DashStyleDot);
                     g->DrawRectangle(&fp, rB);
                 }
-            } else if (btnId >= 200 && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT && btnId != ID_BTN_DOWNLOAD) {
+            } else if (btnId >= ID_BTN_BACK && btnId != ID_BTN_BACK && btnId != ID_TRAY_RESTORE && btnId != ID_TRAY_EXIT && btnId != ID_BTN_DOWNLOAD) {
                 bool isChecked = false;
                 if (btnId == ID_CHK_TRAY) isChecked = bCloseToTray;
                 else if (btnId == ID_CHK_AUTOSTART) isChecked = bAutoStart;
-                else if (btnId >= 4000) isChecked = bShortcutsState[btnId - 4000];
+                else if (btnId >= ID_SC_NEXT) isChecked = bShortcutsState[btnId - ID_SC_NEXT];
 
                 wchar_t text[64]; GetWindowTextW(p->hwndItem, text, 64);
                 SetBkMode(buf.hMemDC, TRANSPARENT); 
@@ -1228,7 +1258,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
             } else {
                 Color bg, txt;
-                bool active = (btnId - 100 == currentScreenRot) && (btnId < 200);
+                bool active = (btnId - ID_BTN_LANDSCAPE == currentScreenRot) && (btnId < ID_BTN_BACK);
                 bool disabled = (p->itemState & ODS_DISABLED);
 
                 if (btnId == ID_BTN_SETTINGS || btnId == ID_BTN_BACK || btnId == ID_BTN_UPDATE || btnId == ID_BTN_DOWNLOAD) {
@@ -1257,7 +1287,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 GetRoundedRectPath(&path, r, S(CORNER_RADIUS) * 2);
                 SolidBrush b(bg); g->FillPath(&b, &path);
 
-                if (btnId >= 100 && btnId <= 105) {
+                if (btnId >= ID_BTN_LANDSCAPE && btnId <= ID_BTN_NEXT) {
                     DrawProIcon(*g, btnId, S(15), (h - S(20)) / 2, S(20), txt, active);
                 }
                 
@@ -1273,7 +1303,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
                 if (btnId == ID_BTN_DOWNLOAD) SelectObject(buf.hMemDC, hFontTitle);
                 else SelectObject(buf.hMemDC, hFontBold);
                 RECT tr = {0, 0, w, h};
-                if (btnId >= 200 || btnId == ID_BTN_SETTINGS || btnId == ID_BTN_DOWNLOAD || btnId == ID_BTN_UPDATE) {
+                if (btnId >= ID_BTN_BACK || btnId == ID_BTN_SETTINGS || btnId == ID_BTN_DOWNLOAD || btnId == ID_BTN_UPDATE) {
                     DrawTextW(buf.hMemDC, text, -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE);
                 }
                 else {
@@ -1316,30 +1346,29 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_COMMAND: {
         int id = LOWORD(w);
-        if (id >= 100 && id <= 103) { 
-            SetRot((id - 100) * 90);
-            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); }
-        else if (id == 105) { SetRot(-1); RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); }
+        if (id >= ID_BTN_LANDSCAPE && id <= ID_BTN_FLIPPORT) { 
+            SetRot((id - ID_BTN_LANDSCAPE) * 90);
+            ForceRedraw(h, true); }
+        else if (id == ID_BTN_NEXT) { SetRot(-1); ForceRedraw(h, true); }
         else if (id == ID_BTN_SETTINGS || id == ID_BTN_BACK) {
             if (id == ID_BTN_BACK && bUpdatePageMode) ToggleUpdateView(h, false);
             else ToggleViewMode(h);
         }
         else if (id == ID_BTN_UPDATE) { ToggleUpdateView(h, true); }
         else if (id == ID_BTN_DOWNLOAD) { 
-            Threadupdt* params = (Threadupdt*)HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(Threadupdt));
-            params->hWnd = h;
-            CreateThread(NULL, 0, DownloadThread, params, 0, NULL);
+            HANDLE hThread = CreateThread(NULL, 0, DownloadThread, (LPVOID)h, 0, NULL);
+            if (hThread) CloseHandle(hThread);
         }
         else if (id == ID_CHK_TRAY) {
             bCloseToTray = !bCloseToTray;
             SaveSettings(); 
-            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            ForceRedraw((HWND)l);
         }
         else if (id == ID_CHK_AUTOSTART) {
             bAutoStart = !bAutoStart;
             UpdateAutoStartRegistry(bAutoStart);
             SaveSettings();
-            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            ForceRedraw((HWND)l);
         }
         else if (id == ID_CHK_TRAYMODE) {
             if (bTrayToggleLP == 1) bTrayToggleLP = 2;
@@ -1351,13 +1380,13 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else modeText = L"Tray Click: Cycle Rotation (Next \u27F3)";
             SetWindowTextW(hSetControls[8], modeText);
             SaveSettings();
-            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            ForceRedraw((HWND)l);
         }
         else if (id >= ID_SC_NEXT && id <= ID_SC_APP) {
-            int idx = id - 4000;
+            int idx = id - ID_SC_NEXT;
             bShortcutsState[idx] = !bShortcutsState[idx];
             ManageShortcut(idx, bShortcutsState[idx]);
-            RedrawWindow((HWND)l, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW);
+            ForceRedraw((HWND)l);
         }
 
         else if (id == ID_TRAY_RESTORE) { 
@@ -1392,22 +1421,22 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             else {
                 SetRot(-1); 
             }
-            RedrawWindow(h, NULL, NULL, RDW_INVALIDATE | RDW_UPDATENOW | RDW_ALLCHILDREN); 
+            ForceRedraw(h, true); 
         }
         else if (l == WM_RBUTTONUP) {
             POINT p; GetCursorPos(&p); HMENU hMenu = CreatePopupMenu();
             
-            AppendMenuW(hMenu, MF_OWNERDRAW, 105, (LPCWSTR)L"Rotate Clockwise (Next)");
+            AppendMenuW(hMenu, MF_OWNERDRAW, ID_BTN_NEXT, (LPCWSTR)L"Rotate Clockwise (Next)");
             AppendMenuW(hMenu, MF_SEPARATOR | MF_OWNERDRAW, 0, NULL);
-            AppendMenuW(hMenu, MF_OWNERDRAW, 100, (LPCWSTR)L"Landscape");
-            AppendMenuW(hMenu, MF_OWNERDRAW, 101, (LPCWSTR)L"Portrait");
-            AppendMenuW(hMenu, MF_OWNERDRAW, 102, (LPCWSTR)L"Flipped Landscape");
-            AppendMenuW(hMenu, MF_OWNERDRAW, 103, (LPCWSTR)L"Flipped Portrait");
+            AppendMenuW(hMenu, MF_OWNERDRAW, ID_BTN_LANDSCAPE, (LPCWSTR)L"Landscape");
+            AppendMenuW(hMenu, MF_OWNERDRAW, ID_BTN_PORTRAIT, (LPCWSTR)L"Portrait");
+            AppendMenuW(hMenu, MF_OWNERDRAW, ID_BTN_FLIPPED, (LPCWSTR)L"Flipped Landscape");
+            AppendMenuW(hMenu, MF_OWNERDRAW, ID_BTN_FLIPPORT, (LPCWSTR)L"Flipped Portrait");
             AppendMenuW(hMenu, MF_SEPARATOR | MF_OWNERDRAW, 0, NULL);
             AppendMenuW(hMenu, MF_OWNERDRAW, ID_TRAY_RESTORE, (LPCWSTR)L"Restore Window");
             AppendMenuW(hMenu, MF_OWNERDRAW, ID_TRAY_EXIT, (LPCWSTR)L"Exit");
             
-            if (currentScreenRot >= 0 && currentScreenRot <= 3) CheckMenuItem(hMenu, 100 + currentScreenRot, MF_CHECKED);
+            if (currentScreenRot >= 0 && currentScreenRot <= 3) CheckMenuItem(hMenu, ID_BTN_LANDSCAPE + currentScreenRot, MF_CHECKED);
 
             SetForegroundWindow(h); TrackPopupMenu(hMenu, TPM_BOTTOMALIGN | TPM_LEFTALIGN, p.x, p.y, 0, h, NULL); DestroyMenu(hMenu);
         }
@@ -1423,7 +1452,9 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_DESTROY:
         Shell_NotifyIconW(NIM_DELETE, &nid);
-        DeleteObject(hFontBold); DeleteObject(hFontNormal); DeleteObject(hFontHeader);
+        DestroyIcon(hIconSm);
+        DestroyIcon(hIconBig);
+        DeleteObject(hFontBold); DeleteObject(hFontNormal); DeleteObject(hFontHeader); DeleteObject(hFontTitle);
         DeleteObject(g_hBrBkgnd);
         PostQuitMessage(0);
         return 0;
@@ -1433,39 +1464,33 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         HDC dc = BeginPaint(h, &ps);
         FillRect(dc, &ps.rcPaint, g_hBrBkgnd); 
         SetBkMode(dc, TRANSPARENT);
-        SelectObject(dc, hFontHeader);
+        HGDIOBJ hOldFont = SelectObject(dc, hFontHeader);
         SetTextColor(dc, b_IsDarktheme ? RGB(110, 110, 110) : RGB(160, 160, 160)); 
 
         if (bSettingsMode) {
             HPEN hPen = CreatePen(PS_SOLID, S(2), b_IsDarktheme ? RGB(70, 70, 70) : RGB(200, 200, 200)); 
-            SelectObject(dc, hPen);
+            HGDIOBJ hOldPen = SelectObject(dc, hPen);
             MoveToEx(dc, S(20), S(145), NULL);
             LineTo(dc, S(WIN_W) - S(32), S(145));
+            SelectObject(dc, hOldPen);
             DeleteObject(hPen);
             wchar_t verText[64];
             wnsprintfW(verText, 64, L"Quick Rotate %s by ArKT", CURRENT_VER);
-            RECT tr = {S(BTN_X), S(430), S(BTN_X) + S(BTN_W), S(480)};
+            RECT tr = {S(BTN_X), S(STATUS_Y), S(BTN_X) + S(BTN_W), S(WIN_H)};
             DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         } 
         else if (!bUpdatePageMode) {
             wchar_t statusText[64];
             wnsprintfW(statusText, 64, L"Active Monitor: %d", g_currentMonNum);
-            RECT tr = {0, S(430), S(WIN_W), S(480)}; 
+            RECT tr = {0, S(STATUS_Y), S(WIN_W), S(WIN_H)}; 
             DrawTextW(dc, statusText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         }
+        SelectObject(dc, hOldFont);
         EndPaint(h, &ps);
         return 0;
     }
     }
     return DefWindowProcW(h, m, w, l);
-}
-
-bool IsArg(LPWSTR arg, const wchar_t* check) {
-    while (*arg && *check) {
-        if (MyToLower(*arg) != MyToLower(*check)) return false;
-        arg++; check++;
-    }
-    return *arg == 0 && *check == 0;
 }
 
 extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
@@ -1474,17 +1499,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     GdiplusStartupInput gdiplusStartupInput;
     GdiplusStartup(&gdiplusToken, &gdiplusStartupInput, NULL);
 
-    g_hUrlMon = LoadLibraryW(L"urlmon.dll");
-    if (g_hUrlMon) {
-        g_pDownload = (tUD)GetProcAddress(g_hUrlMon, "URLDownloadToFileW");
-        g_pOpenStream = (tOS)GetProcAddress(g_hUrlMon, "URLOpenBlockingStreamW");
-    }
-    g_hWinInet = LoadLibraryW(L"wininet.dll");
-    if (g_hWinInet) g_pDelCache = (tDC)GetProcAddress(g_hWinInet, "DeleteUrlCacheEntryW");
+    g_hDwm = LoadLibraryW(L"dwmapi.dll");
+    if (g_hDwm) g_pfnDwmSetAttr = (tDWM)GetProcAddress(g_hDwm, "DwmSetWindowAttribute");
+
     RefreshTheme(NULL);
     InitSettingsPath();
-    EnsureStartMenuShortcut();
-
     if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
         SaveSettings();
     }
@@ -1518,21 +1537,17 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
     bool bSilentStart = false;
     if (*cmd != 0) {
-        if (IsArg(cmd, L"-tray")) {
+        if (lstrcmpiW(cmd, L"-tray") == 0) {
             bSilentStart = true;
         } 
-        else if (IsArg(cmd, L"-nuke")) {
+        else if (lstrcmpiW(cmd, L"-nuke") == 0) {
             RunUninstall();
-            GdiplusShutdown(gdiplusToken);
-            CoUninitialize();
-            ExitProcess(0);
+            CleanExit();
         }
         else {
-            if (IsArg(cmd, L"next") || IsArg(cmd, L"rotate")) {
+            if (lstrcmpiW(cmd, L"next") == 0 || lstrcmpiW(cmd, L"rotate") == 0) {
                 SetRot(-1);
-                GdiplusShutdown(gdiplusToken);
-                CoUninitialize();
-                ExitProcess(0);
+                CleanExit();
             }
 
             wchar_t* endPtr;
@@ -1541,9 +1556,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
             if (isValidNum && (a == 0 || a == 90 || a == 180 || a == 270)) {
                 SetRot(a);
-                GdiplusShutdown(gdiplusToken);
-                CoUninitialize();
-                ExitProcess(0);
+                CleanExit();
             } 
             
             wchar_t p[MAX_PATH];
@@ -1565,9 +1578,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             wchar_t title[256];
             wnsprintfW(title, 256, L" Error or Info? : %s", AppTitle);
             MessageBoxW(NULL, msg, title, MB_OK | MB_ICONINFORMATION);
-            GdiplusShutdown(gdiplusToken);
-            CoUninitialize();
-            ExitProcess(0);
+            CleanExit();
         }
     }
 
@@ -1586,17 +1597,10 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                     PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
                     SetForegroundWindow(hExisting);
                 }
-                GdiplusShutdown(gdiplusToken);
                 CloseHandle(hMutex);
-                CoUninitialize(); 
-                ExitProcess(0); 
+                CleanExit();
             }
         }
-    }
-
-    if (!bSilentStart && !bUpdateMode && bAutoStart) {
-        wchar_t dummy[MAX_PATH];
-        EnsureInstalled(dummy, false);
     }
 
     int wSmall = GetSystemMetrics(SM_CXSMICON);
@@ -1631,9 +1635,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     if (!hMainWnd) {
         ReleaseMutex(hMutex);
         CloseHandle(hMutex); 
-        GdiplusShutdown(gdiplusToken);
-        CoUninitialize();
-        ExitProcess(1);
+        CleanExit(1);
     }
     RefreshTheme(hMainWnd);
 
@@ -1646,8 +1648,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         HMONITOR hMon = MonitorFromPoint(pt, MONITOR_DEFAULTTONEAREST);
         MoveToMonitorCenter(hMainWnd, hMon);
         ShowWindow(hMainWnd, SW_SHOW);
+        UpdateWindow(hMainWnd);
     }
     
+    PostMessageW(hMainWnd, WM_POST_INIT, (WPARAM)bSilentStart, 0);
+
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
         if (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) {
@@ -1676,12 +1681,8 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         }
     }
 
-    GdiplusShutdown(gdiplusToken);
-    ReleaseMutex(hMutex);
+    ReleaseMutex(hMutex); 
     CloseHandle(hMutex);
-    if (g_hUrlMon) FreeLibrary(g_hUrlMon);
-    if (g_hWinInet) FreeLibrary(g_hWinInet);
-    CoUninitialize(); 
-    ExitProcess(0);
+    CleanExit();
     return 0;
 }
