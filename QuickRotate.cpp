@@ -85,6 +85,7 @@ using namespace Gdiplus;
 #define ID_CHK_TRAY       201
 #define ID_CHK_AUTOSTART  202
 #define ID_CHK_TRAYMODE   203
+#define ID_CHK_THEME      204
 
 #define ID_SC_NEXT        4000
 #define ID_SC_LANDSCAPE   4001
@@ -121,12 +122,13 @@ bool bAutoStart = false;
 bool bSettingsMode = false;
 bool bUpdateMode = false;
 int bTrayToggleLP = 1;
+int bThemeMode = 0;
 wchar_t iniPath[MAX_PATH];
 bool bShortcutsState[6] = {0};
 
 HWND hBtnRot[5];
 HWND hBtnSettings;
-HWND hSetControls[12];
+HWND hSetControls[13];
 
 bool bUpdatePageMode = false;
 HBRUSH g_hBrBkgnd = NULL;
@@ -158,12 +160,19 @@ static inline void CleanExit(int code = 0) {
 
 void RefreshTheme(HWND h) {
     DWORD lightModeVal = 1;
-    DWORD valSize = sizeof(lightModeVal);
-    HKEY hKey;
     
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        RegQueryValueExW(hKey, L"AppsUseLightTheme", NULL, NULL, (LPBYTE)&lightModeVal, &valSize);
-        RegCloseKey(hKey);
+    if (bThemeMode == 0) {
+        DWORD valSize = sizeof(lightModeVal);
+        HKEY hKey;
+    
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+            RegQueryValueExW(hKey, L"AppsUseLightTheme", NULL, NULL, (LPBYTE)&lightModeVal, &valSize);
+            RegCloseKey(hKey);
+        }
+    } else if (bThemeMode == 1) {
+        lightModeVal = 1;
+    } else if (bThemeMode == 2) {
+        lightModeVal = 0;
     }
     
     b_IsDarktheme = (lightModeVal == 0);
@@ -247,7 +256,7 @@ LRESULT CALLBACK BtnProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     }
 
     int id = GetDlgCtrlID(h);
-    if (id == ID_CHK_TRAYMODE && m == WM_MOUSEMOVE) {
+    if ((id == ID_CHK_TRAYMODE || id == ID_CHK_THEME) && m == WM_MOUSEMOVE) {
         ForceRedraw(h);
     }
     if (m == WM_MOUSEMOVE) {
@@ -502,6 +511,7 @@ void LoadSettings() {
     bCloseToTray = GetPrivateProfileIntW(L"Settings", L"CloseToTray", 1, iniPath);
     bAutoStart = GetPrivateProfileIntW(L"Settings", L"AutoStart", 0, iniPath);
     bTrayToggleLP = GetPrivateProfileIntW(L"Settings", L"TrayToggleLP", 1, iniPath);
+    bThemeMode = GetPrivateProfileIntW(L"Settings", L"ThemeMode", 0, iniPath);
 }
 void SaveSettings() {
     WritePrivateProfileStringW(L"Settings", L"CloseToTray", bCloseToTray ? L"1" : L"0", iniPath);
@@ -509,6 +519,9 @@ void SaveSettings() {
     wchar_t trayModeStr[4];
     wnsprintfW(trayModeStr, 4, L"%d", bTrayToggleLP);
     WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", trayModeStr, iniPath);
+    wchar_t themeModeStr[4];
+    wnsprintfW(themeModeStr, 4, L"%d", bThemeMode);
+    WritePrivateProfileStringW(L"Settings", L"ThemeMode", themeModeStr, iniPath);
 }
 
 struct MonData {
@@ -658,12 +671,13 @@ void UpdateLayout(HWND h) {
     mv(hSetControls[0], SETTINGS_Y, BTN_SH, half);
     mv(hSetControls[11], SETTINGS_Y, BTN_SH, half, BTN_X + half + 10);
 
-    mv(hSetControls[1], 20, 30);
-    mv(hSetControls[2], 60, 30);
-    mv(hSetControls[8], 100, 30);
-    mv(hSetControls[9], 160, 30);
+    mv(hSetControls[1], 10, 30);
+    mv(hSetControls[2], 46, 30);
+    mv(hSetControls[12], 82, 30);
+    mv(hSetControls[8], 118, 30);
+    mv(hSetControls[9], 172, 30);
 
-    for (int i = 0; i < 5; i++) mv(hSetControls[3+i], 198 + (i * 38), 30);
+    for (int i = 0; i < 5; i++) mv(hSetControls[3+i], 208 + (i * 36), 30);
     
     if (hSetControls[10]) mv(hSetControls[10], 426, 25);
 
@@ -739,7 +753,7 @@ void ToggleViewMode(HWND h) {
     }
     if (hBtnSettings) hdwp = DeferWindowPos(hdwp, hBtnSettings, NULL, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | flagMain);
 
-    for (int i=0; i<12; i++) {
+    for (int i=0; i<13; i++) {
         if (hSetControls[i]) {
             hdwp = DeferWindowPos(hdwp, hSetControls[i], NULL, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | flagSet);
         }
@@ -1064,14 +1078,20 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else if (bTrayToggleLP == 2) trayText = L"Tray Click: (F) Landscape \u2194 Portrait";
         else trayText = L"Tray Click: Cycle Rotation (Next \u27F3)";
         
+        const wchar_t* themeText;
+        if (bThemeMode == 0) themeText = L"Theme: System Default";
+        else if (bThemeMode == 1) themeText = L"Theme: Light Mode";
+        else themeText = L"Theme: Dark Mode";
+        
         TogData togs[] = {
-            {1, L"Minimize to Tray on Close", ID_CHK_TRAY, 20},
-            {2, L"Start with Windows", ID_CHK_AUTOSTART, 60},
-            {8, trayText, ID_CHK_TRAYMODE, 100},
-            {9, L"Shortcut: Quick Rotate App", ID_SC_APP, 160}
+            {1, L"Minimize to Tray on Close", ID_CHK_TRAY, 10},
+            {2, L"Start with Windows", ID_CHK_AUTOSTART, 46},
+            {12, themeText, ID_CHK_THEME, 82},
+            {8, trayText, ID_CHK_TRAYMODE, 118},
+            {9, L"Shortcut: Quick Rotate App", ID_SC_APP, 172}
         };
 
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             hSetControls[togs[i].idx] = CreateMyButton(h, togs[i].txt, togs[i].id, 
                 BTN_X, togs[i].y, BTN_W, 30, WS_TABSTOP);
         }
@@ -1086,7 +1106,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         int scIds[] = { ID_SC_NEXT, ID_SC_LANDSCAPE, ID_SC_PORTRAIT, ID_SC_FLIPPED, ID_SC_FLIPPORT };
         
         for (int i = 0; i < 5; i++) {
-            hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 198 + (i * 38), BTN_W, 30, WS_TABSTOP);
+            hSetControls[3+i] = CreateMyButton(h, scTxt[i], scIds[i], BTN_X, 208 + (i * 36), BTN_W, 30, WS_TABSTOP);
         }
 
         hSetControls[10] = NULL;
@@ -1153,7 +1173,10 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
 
     case WM_SETTINGCHANGE: {
         if (l != 0 && lstrcmpiW((LPCWSTR)l, L"ImmersiveColorSet") == 0) {
-            RefreshTheme(h);
+            if (bThemeMode == 0) {
+                RefreshTheme(h);
+                ForceRedraw(h, true);
+            }
         }
         return 0;
     }
@@ -1202,7 +1225,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             bool focused = (p->itemState & ODS_FOCUS);
             int btnId = p->CtlID;
 
-            if (btnId == ID_CHK_TRAYMODE) {
+            if (btnId == ID_CHK_TRAYMODE || btnId == ID_CHK_THEME) {
                 g->Clear(b_IsDarktheme ? Color(32, 32, 32) : Color(240, 240, 240)); 
                 wchar_t buf_t[64]; GetWindowTextW(p->hwndItem, buf_t, 64);
                 SetBkMode(buf.hMemDC, TRANSPARENT); 
@@ -1382,6 +1405,17 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SaveSettings();
             ForceRedraw((HWND)l);
         }
+        else if (id == ID_CHK_THEME) {
+            bThemeMode = (bThemeMode + 1) % 3;
+            const wchar_t* modeText;
+            if (bThemeMode == 0) modeText = L"Theme: System Default";
+            else if (bThemeMode == 1) modeText = L"Theme: Light Mode";
+            else modeText = L"Theme: Dark Mode";
+            SetWindowTextW(hSetControls[12], modeText);
+            SaveSettings();
+            RefreshTheme(h);
+            ForceRedraw(h, true);
+        }
         else if (id >= ID_SC_NEXT && id <= ID_SC_APP) {
             int idx = id - ID_SC_NEXT;
             bShortcutsState[idx] = !bShortcutsState[idx];
@@ -1470,8 +1504,8 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (bSettingsMode) {
             HPEN hPen = CreatePen(PS_SOLID, S(2), b_IsDarktheme ? RGB(70, 70, 70) : RGB(200, 200, 200)); 
             HGDIOBJ hOldPen = SelectObject(dc, hPen);
-            MoveToEx(dc, S(20), S(145), NULL);
-            LineTo(dc, S(WIN_W) - S(32), S(145));
+            MoveToEx(dc, S(20), S(160), NULL);
+            LineTo(dc, S(WIN_W) - S(32), S(160));
             SelectObject(dc, hOldPen);
             DeleteObject(hPen);
             wchar_t verText[64];
