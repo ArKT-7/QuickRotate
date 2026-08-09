@@ -16,7 +16,7 @@
 ## ✨ Features
 
 - **Zero Dependencies:** A single `.exe` file. No background services, DLLs, or runtimes required.
-- **Modern UI:** Custom built GDI+ interface featuring anti-aliased icons, rounded corners, and dynamic tracking of Windows Immersive Dark/Light modes.
+- **Modern UI & Themes:** Custom built GDI+ interface with smooth icons, rounded corners, and the option to choose between Light, Dark, or System Default themes.
 - **Tray Integration:** Runs silently in the background with a customizable tray icon click action [and more...](https://github.com/ArKT-7/QuickRotate/blob/main/README.md#3-%EF%B8%8F-system-tray--context-menu)
 * **Self-Updating:** Includes a built-in updater that grabs and applies new versions right from GitHub releases.
 - **CLI Support:** Automate rotations using command-line arguments for scripts and batch files.
@@ -37,6 +37,7 @@
  **`Click Settings ⚙️ to configure tool behavior and automation:`**
 * **Minimize to Tray on Close:** Hides the app in the system tray instead of exiting when you click close.
 * **Start with Windows:** Integrates with the registry for automatic startup on boot.
+* **`Theme Control` (3-Way Toggle):** Choose exactly how the app looks. Switch between Light mode, Dark mode, or let it sync with your Windows settings.
 * **`Tray Click Mode` (3-Way Toggle):** Configure the **Single-Click** behavior of the tray icon to cycle between:
     * **Landscape ↔ Portrait**
     * **(F) Landscape ↔ Portrait** (Flipped orientations)
