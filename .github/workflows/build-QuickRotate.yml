@@ -109,7 +109,7 @@ jobs:
           }
           
           $body = @"
-          # ⚡ Quick Rotate v$ver
+          # <sub>[<img src="./assets/icon.png" width="40" height="40">](https://github.com/$repo/releases/latest)</sub> Quick Rotate v$ver
 
           ---
 
@@ -120,7 +120,25 @@ jobs:
 
           ---
           
-          ## <a href="https://github.com/$repo/releases/download/v$ver/$file"><img src="https://github.com/$repo/blob/main/assets/icon.png" width="36" height="36" align="absmiddle"></a> [``Download Quick Rotate``](https://github.com/$repo/releases/download/v$ver/$file)
+          ### 📥 Install & Update Options
+
+          * **Direct Download (Latest) ⚡**
+
+          <a href="https://github.com/$repo/releases/download/v$ver/$file"><img alt="Direct Download .exe" width="200px" src="https://github.com/$repo/blob/main/assets/github-button.svg?raw=true" /></a>
+
+          > [!IMPORTANT]
+          > **Heads up:** It takes a little while for the **``Microsoft Store``** and **``WinGet``** to review and publish new updates. If you don't want to wait, grab the **``Direct Download``** above to get it right now! 😉
+
+          * **Microsoft Store**<br>
+
+          <a href="https://aka.ms/AA132927"><img alt="Get it from Microsoft" width="200" src="https://get.microsoft.com/images/en-us%20dark.svg" /></a>
+
+          * **WinGet CLI**
+
+          ``````powershell
+          winget install QuickRotate    # Install
+          winget upgrade QuickRotate    # Update
+          ``````
 
           ---
 
