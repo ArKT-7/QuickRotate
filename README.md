@@ -9,15 +9,33 @@
 
 **Thanks to this native approach (fr),** it compiles into a single, statically-linked x86 executable (only ~60KB in size), ensuring universal compatibility across Windows 32-bit, 64-bit, and Windows on ARM (WoA) via native OS emulation.⚡
 
+
 ---
-## 📥 [Download Latest Version Here!](https://github.com/ArKT-7/QuickRotate/releases/latest)
+
+## 📥 Installation
+**`Choose your preferred installation method:`**
+
+* **Microsoft Store (Recommended)**
+
+<a href="https://aka.ms/AA132927"><img alt="Get it from Microsoft" width="220px" src="https://get.microsoft.com/images/en-us%20dark.svg" /></a>
+
+* **WinGet CLI**
+```powershell
+winget install QuickRotate    # Install
+winget upgrade QuickRotate    # Update
+```
+
+* **Direct Download**
+
+<a href="https://github.com/ArKT-7/QuickRotate/releases/latest"><img alt="Direct Download .exe" width="200px" src="./assets/github-button.svg" /></a>
+
 ---
 
 ## ✨ Features
 
-- **Zero Dependencies:** A single `.exe` file. No background services, DLLs, or runtimes required.
-- **Modern UI & Themes:** Custom built GDI+ interface with smooth icons, rounded corners, and the option to choose between Light, Dark, or System Default themes.
-- **Tray Integration:** Runs silently in the background with a customizable tray icon click action [and more...](https://github.com/ArKT-7/QuickRotate/blob/main/README.md#3-%EF%B8%8F-system-tray--context-menu)
+* **Zero Dependencies:** A single `.exe` file. No background services, DLLs, or runtimes required.
+* **Modern UI & Themes:** Custom built GDI+ interface with smooth icons, rounded corners, and the option to choose between Light, Dark, or System Default themes.
+* **Tray Integration:** Runs silently in the background with a customizable tray icon click action [and more...](https://github.com/ArKT-7/QuickRotate/blob/main/README.md#3-%EF%B8%8F-system-tray--context-menu)
 * **Self-Updating:** Includes a built-in updater that grabs and applies new versions right from GitHub releases.
 - **CLI Support:** Automate rotations using command-line arguments for scripts and batch files.
 
