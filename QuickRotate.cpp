@@ -366,9 +366,11 @@ bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
     return false;
 }
 
-void RunUninstall() {
-    if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
-        return; 
+void RunUninstall(bool silent = false) {
+    if (!silent) {
+        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+            return; 
+        }
     }
 
     HWND hExisting = FindWindowW(AppClass, NULL);
@@ -401,7 +403,9 @@ void RunUninstall() {
     DeleteFileW(iniPath);
     RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH);
 
-    MessageBoxW(NULL, L"Quick Rotate was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
+    if (!silent) {
+        MessageBoxW(NULL, L"Quick Rotate was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
+    }
 
     wchar_t appDir[MAX_PATH];
     GetAppDataPath(appDir, NULL);
@@ -1575,7 +1579,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             bSilentStart = true;
         } 
         else if (lstrcmpiW(cmd, L"-nuke") == 0) {
-            RunUninstall();
+            RunUninstall(false);
+            CleanExit();
+        }
+        else if (lstrcmpiW(cmd, L"-silentnuke") == 0) {
+            RunUninstall(true);
             CleanExit();
         }
         else {
