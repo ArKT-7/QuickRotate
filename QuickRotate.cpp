@@ -366,13 +366,7 @@ bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
     return false;
 }
 
-void RunUninstall(bool silent = false) {
-    if (!silent) {
-        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
-            return; 
-        }
-    }
-
+void KillExistingInstance() {
     HWND hExisting = FindWindowW(AppClass, NULL);
     if (hExisting) {
         SendMessageW(hExisting, WM_COMMAND, ID_TRAY_EXIT, 0);
@@ -381,6 +375,16 @@ void RunUninstall(bool silent = false) {
             Sleep(50);
         }
     }
+}
+
+void RunUninstall(bool silent = false) {
+    if (!silent) {
+        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+            return; 
+        }
+    }
+
+    KillExistingInstance();
 
     wchar_t exePath[MAX_PATH];
     GetStableExePath(exePath);
@@ -1586,6 +1590,21 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             RunUninstall(true);
             CleanExit();
         }
+        else if (lstrcmpiW(cmd, L"-spawn") == 0) {
+            HANDLE hMutexInst = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
+            if (GetLastError() == ERROR_ALREADY_EXISTS) {
+                KillExistingInstance();
+            }
+
+            EnsureInstalled(safePath, true);
+            EnsureStartMenuShortcut();
+
+            if (hMutexInst) {
+                ReleaseMutex(hMutexInst);
+                CloseHandle(hMutexInst); 
+            }
+            CleanExit();
+        }
         else {
             if (lstrcmpiW(cmd, L"next") == 0 || lstrcmpiW(cmd, L"rotate") == 0) {
                 SetRot(-1);
@@ -1610,11 +1629,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             wnsprintfW(msg, 1024,
                 L"Usage:\n  .\\%s [angle] OR [next]\n\n"
                 L"Examples:\n"
-                L"  .\\%s next   (Rotate Clockwise)\n"
-                L"  .\\%s 0      (Landscape)\n"
-                L"  .\\%s 90     (Portrait)\n"
-                L"  .\\%s 180    (Flipped Landscape)\n"
-                L"  .\\%s 270    (Flipped Portrait)", 
+                L"  .\\%s next \t(Rotate Clockwise)\n"
+                L"  .\\%s 0 \t(Landscape)\n"
+                L"  .\\%s 90 \t(Portrait)\n"
+                L"  .\\%s 180 \t(Flipped Landscape)\n"
+                L"  .\\%s 270 \t(Flipped Portrait)", 
                 n, n, n, n, n, n);
 
             wchar_t title[256];
@@ -1626,22 +1645,16 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
     HANDLE hMutex = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        HWND hExisting = FindWindowW(AppClass, NULL);
-        if (hExisting) {
-            if (bUpdateMode) {
-                SendMessageW(hExisting, WM_COMMAND, ID_TRAY_EXIT, 0);
-                for(int i=0; i<20; i++) {
-                    if (!FindWindowW(AppClass, NULL)) break;
-                    Sleep(50);
-                }
-            } else {
-                if (!bSilentStart) {
-                    PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
-                    SetForegroundWindow(hExisting);
-                }
-                CloseHandle(hMutex);
-                CleanExit();
+        if (bUpdateMode) {
+            KillExistingInstance();
+        } else {
+            HWND hExisting = FindWindowW(AppClass, NULL);
+            if (hExisting && !bSilentStart) {
+                PostMessageW(hExisting, WM_COMMAND, ID_TRAY_RESTORE, 0);
+                SetForegroundWindow(hExisting);
             }
+            CloseHandle(hMutex);
+            CleanExit();
         }
     }
 
