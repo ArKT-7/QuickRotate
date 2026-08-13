@@ -67,7 +67,6 @@ using namespace Gdiplus;
 #define SETTINGS_Y (20 + (5 * (BTN_H + 15)) - 5)
 #define STATUS_Y   (SETTINGS_Y + BTN_SH)
 
-#define WM_POST_INIT      (WM_USER + 101)
 #define WM_TRAYICON       (WM_USER + 100)
 #define ID_TRAY_RESTORE   2001
 #define ID_TRAY_EXIT      2002
@@ -335,6 +334,19 @@ void RegisterUninstaller(const wchar_t* exePath) {
     RegCloseKey(hKey);
 }
 
+bool GetInstalledRegVersion(wchar_t* outVer) {
+    HKEY hCheck;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, KEY_READ, &hCheck) == ERROR_SUCCESS) {
+        DWORD size = 64 * sizeof(wchar_t);
+        if (RegQueryValueExW(hCheck, L"DisplayVersion", NULL, NULL, (LPBYTE)outVer, &size) == ERROR_SUCCESS) {
+            RegCloseKey(hCheck);
+            return true;
+        }
+        RegCloseKey(hCheck);
+    }
+    return false;
+}
+
 bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
     if (GetStableExePath(finalPath)) {
         if (forceUpdate || GetFileAttributesW(finalPath) == INVALID_FILE_ATTRIBUTES) {
@@ -379,7 +391,7 @@ void KillExistingInstance() {
 
 void RunUninstall(bool silent = false) {
     if (!silent) {
-        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING) != IDOK) {
+        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) {
             return; 
         }
     }
@@ -1030,15 +1042,6 @@ void MoveToMonitorCenter(HWND h, HMONITOR hMon) {
 
 LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
-    case WM_POST_INIT: {
-        EnsureStartMenuShortcut();
-        bool isSilent = (bool)w;
-        if (!isSilent && !bUpdateMode && bAutoStart) {
-            wchar_t dummy[MAX_PATH];
-            EnsureInstalled(dummy, false);
-        }
-        return 0;
-    }
     case WM_ERASEBKGND: {
         HDC dc = (HDC)w;
         RECT rc;
@@ -1560,15 +1563,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     DeleteFileW(oldPath);
 
     wchar_t safePath[MAX_PATH];
-    if (GetStableExePath(safePath)) {
-        wchar_t currentPath[MAX_PATH];
-        GetModuleFileNameW(NULL, currentPath, MAX_PATH);
-        if (lstrcmpiW(currentPath, safePath) != 0) {
-            if (GetFileAttributesW(safePath) != INVALID_FILE_ATTRIBUTES) {
-                bUpdateMode = true;
-            }
-        }
-    }
+    GetStableExePath(safePath);
     
     if (bAutoStart) UpdateAutoStartRegistry(true);
 
@@ -1591,6 +1586,11 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             CleanExit();
         }
         else if (lstrcmpiW(cmd, L"-spawn") == 0) {
+            wchar_t installedVer[32] = {0};
+            if (GetInstalledRegVersion(installedVer) && CompareVersion(VERSION_W, installedVer) < 0) {
+                CleanExit();
+            }
+
             HANDLE hMutexInst = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
             if (GetLastError() == ERROR_ALREADY_EXISTS) {
                 KillExistingInstance();
@@ -1643,9 +1643,49 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         }
     }
 
+    bool bTempRun = false;
+    wchar_t currentPath[MAX_PATH];
+    GetModuleFileNameW(NULL, currentPath, MAX_PATH);
+
+    if (lstrcmpiW(currentPath, safePath) != 0) {
+        if (GetFileAttributesW(safePath) != INVALID_FILE_ATTRIBUTES) {
+            wchar_t installedVer[32] = {0};
+            int verDiff = 1;
+            if (GetInstalledRegVersion(installedVer)) {
+                verDiff = CompareVersion(VERSION_W, installedVer);
+            }
+
+            if (verDiff < 0) {
+                wchar_t msg[512];
+                wnsprintfW(msg, 512, 
+                    L"You are launching Quick Rotate v%s, but a newer version (v%s) is already installed on your PC.\n\n"
+                    L"How would you like to proceed?\n\n"
+                    L"[Cancel] or [X] \t-  To launch the newer version\n"
+                    L"[OK] \t\t-  Run this older version temporarily", 
+                    VERSION_W, installedVer);
+                
+                if (MessageBoxW(NULL, msg, AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) == IDCANCEL) {
+                    KillExistingInstance();
+                    ShellExecuteW(NULL, L"open", safePath, NULL, NULL, SW_SHOW);
+                    CleanExit(0);
+                } else {
+                    bUpdateMode = false;
+                    bTempRun = true;
+                }
+            } else {
+                bUpdateMode = true;
+            }
+        } else {
+            bUpdateMode = true;
+        }
+    } else {
+        EnsureInstalled(safePath, false);
+        EnsureStartMenuShortcut();
+    }
+
     HANDLE hMutex = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
-        if (bUpdateMode) {
+        if (bUpdateMode || bTempRun) {
             KillExistingInstance();
         } else {
             HWND hExisting = FindWindowW(AppClass, NULL);
@@ -1705,8 +1745,6 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         ShowWindow(hMainWnd, SW_SHOW);
         UpdateWindow(hMainWnd);
     }
-    
-    PostMessageW(hMainWnd, WM_POST_INIT, (WPARAM)bSilentStart, 0);
 
     MSG msg;
     while (GetMessageW(&msg, NULL, 0, 0)) {
@@ -1731,6 +1769,10 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     if (bUpdateMode) {
         wchar_t current[MAX_PATH]; GetModuleFileNameW(NULL, current, MAX_PATH);
         CopyFileW(current, safePath, FALSE); 
+        
+        EnsureInstalled(safePath, false);
+        EnsureStartMenuShortcut();
+
         if (bCloseToTray) {
             ShellExecuteW(NULL, L"open", safePath, L"-tray", NULL, SW_SHOW);
         }
