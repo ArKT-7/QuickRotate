@@ -93,10 +93,12 @@ using namespace Gdiplus;
 #define ID_SC_FLIPPORT    4004
 #define ID_SC_APP         4005
 
-const wchar_t* AppName  = L"Quick Rotate";
+#define APP_NAME_STR L"Quick Rotate"
+
+const wchar_t* AppName  = APP_NAME_STR;
 const wchar_t* AppTitle = L"Quick Rotate v6.2";
 const wchar_t* AppClass = L"ArKT_QuickRotate";
-const wchar_t* SC_NAMES[] = { L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", AppName };
+const wchar_t* SC_NAMES[] = { L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", APP_NAME_STR };
 
 HFONT hFontBold = NULL;
 HFONT hFontNormal = NULL;
@@ -122,7 +124,6 @@ bool bSettingsMode = false;
 bool bUpdateMode = false;
 int bTrayToggleLP = 1;
 int bThemeMode = 0;
-wchar_t iniPath[MAX_PATH];
 wchar_t g_appDir[MAX_PATH];
 wchar_t g_exePath[MAX_PATH];
 wchar_t g_currentPath[MAX_PATH];
@@ -300,11 +301,6 @@ void InitPaths() {
     GetAppDataPath(g_exePath, L"QuickRotate.exe");
     SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, g_startMenuPath);
     SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, g_desktopPath);
-    if (!GetAppDataPath(iniPath, L"ArKT_QuickRotate.ini")) {
-        GetModuleFileNameW(NULL, iniPath, MAX_PATH); 
-        PathRemoveFileSpecW(iniPath); 
-        PathAppendW(iniPath, L"ArKT_QuickRotate.ini");
-    }
 }
 
 void RegSetStr(HKEY hKey, LPCWSTR name, LPCWSTR val) {
@@ -420,7 +416,7 @@ bool RunUninstall(bool silent = false) {
         DeleteFileW(szLinkPath);
     }
 
-    DeleteFileW(iniPath);
+    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate");
     RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH);
 
     if (!silent) {
@@ -523,20 +519,30 @@ void ManageShortcut(int index, bool create) {
 }
 
 void LoadSettings() {
-    bCloseToTray = GetPrivateProfileIntW(L"Settings", L"CloseToTray", 1, iniPath);
-    bAutoStart = GetPrivateProfileIntW(L"Settings", L"AutoStart", 0, iniPath);
-    bTrayToggleLP = GetPrivateProfileIntW(L"Settings", L"TrayToggleLP", 1, iniPath);
-    bThemeMode = GetPrivateProfileIntW(L"Settings", L"ThemeMode", 0, iniPath);
+    HKEY hKey;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD size = sizeof(DWORD); DWORD val;
+        if (RegQueryValueExW(hKey, L"CloseToTray", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bCloseToTray = (val != 0);
+        if (RegQueryValueExW(hKey, L"AutoStart", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bAutoStart = (val != 0);
+        if (RegQueryValueExW(hKey, L"TrayToggleLP", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bTrayToggleLP = val;
+        if (RegQueryValueExW(hKey, L"ThemeMode", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bThemeMode = val;
+        RegCloseKey(hKey);
+    }
 }
+
 void SaveSettings() {
-    WritePrivateProfileStringW(L"Settings", L"CloseToTray", bCloseToTray ? L"1" : L"0", iniPath);
-    WritePrivateProfileStringW(L"Settings", L"AutoStart", bAutoStart ? L"1" : L"0", iniPath);
-    wchar_t trayModeStr[4];
-    wnsprintfW(trayModeStr, 4, L"%d", bTrayToggleLP);
-    WritePrivateProfileStringW(L"Settings", L"TrayToggleLP", trayModeStr, iniPath);
-    wchar_t themeModeStr[4];
-    wnsprintfW(themeModeStr, 4, L"%d", bThemeMode);
-    WritePrivateProfileStringW(L"Settings", L"ThemeMode", themeModeStr, iniPath);
+    HKEY hKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate", 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+        DWORD val = bCloseToTray ? 1 : 0;
+        RegSetValueExW(hKey, L"CloseToTray", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        val = bAutoStart ? 1 : 0;
+        RegSetValueExW(hKey, L"AutoStart", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        val = bTrayToggleLP;
+        RegSetValueExW(hKey, L"TrayToggleLP", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        val = bThemeMode;
+        RegSetValueExW(hKey, L"ThemeMode", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        RegCloseKey(hKey);
+    }
 }
 
 struct MonData {
@@ -1544,11 +1550,22 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
 
     RefreshTheme(NULL);
     InitPaths();
-    if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
-        SaveSettings();
-    }
 
-    LoadSettings();
+    wchar_t oldIniPath[MAX_PATH];
+    wnsprintfW(oldIniPath, MAX_PATH, L"%s\\ArKT_QuickRotate.ini", g_appDir);
+    
+    if (GetFileAttributesW(oldIniPath) != INVALID_FILE_ATTRIBUTES) {
+        bCloseToTray = GetPrivateProfileIntW(L"Settings", L"CloseToTray", 1, oldIniPath);
+        bAutoStart = GetPrivateProfileIntW(L"Settings", L"AutoStart", 0, oldIniPath);
+        bTrayToggleLP = GetPrivateProfileIntW(L"Settings", L"TrayToggleLP", 1, oldIniPath);
+        bThemeMode = GetPrivateProfileIntW(L"Settings", L"ThemeMode", 0, oldIniPath);
+        
+        SaveSettings();
+        DeleteFileW(oldIniPath);
+    } else {
+        LoadSettings();
+        SaveSettings(); 
+    }
 
     wchar_t oldPath[MAX_PATH];
     lstrcpyW(oldPath, g_currentPath);
