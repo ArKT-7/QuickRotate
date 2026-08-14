@@ -389,10 +389,10 @@ void KillExistingInstance() {
     }
 }
 
-void RunUninstall(bool silent = false) {
+bool RunUninstall(bool silent = false) {
     if (!silent) {
         if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) {
-            return; 
+            return false;
         }
     }
 
@@ -438,6 +438,7 @@ void RunUninstall(bool silent = false) {
     sei.lpParameters = cmdLine;
     sei.nShow = SW_HIDE;
     if (ShellExecuteExW(&sei) && sei.hProcess) CloseHandle(sei.hProcess);
+    return true;
 }
 
 void UpdateAutoStartRegistry(bool enable) {
@@ -1578,12 +1579,12 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             bSilentStart = true;
         } 
         else if (lstrcmpiW(cmd, L"-nuke") == 0) {
-            RunUninstall(false);
-            CleanExit();
+            if (RunUninstall(false)) CleanExit(0);
+            else CleanExit(1602);
         }
         else if (lstrcmpiW(cmd, L"-silentnuke") == 0) {
-            RunUninstall(true);
-            CleanExit();
+            if (RunUninstall(true)) CleanExit(0);
+            else CleanExit(1602);
         }
         else if (lstrcmpiW(cmd, L"-spawn") == 0) {
             wchar_t installedVer[32] = {0};
