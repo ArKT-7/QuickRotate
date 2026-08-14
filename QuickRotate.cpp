@@ -312,6 +312,9 @@ void RegisterUninstaller(const wchar_t* exePath) {
 
     wchar_t uninstallCmd[MAX_PATH + 32];
     wnsprintfW(uninstallCmd, MAX_PATH + 32, L"\"%s\" -nuke", exePath);
+    
+    wchar_t quietUninstallCmd[MAX_PATH + 32];
+    wnsprintfW(quietUninstallCmd, MAX_PATH + 32, L"\"%s\" -silentnuke", exePath);
 
     RegSetStr(hKey, L"DisplayName", AppName);
     RegSetStr(hKey, L"DisplayVersion", CURRENT_VER);
@@ -319,6 +322,7 @@ void RegisterUninstaller(const wchar_t* exePath) {
     RegSetStr(hKey, L"DisplayIcon", exePath);
     RegSetStr(hKey, L"InstallLocation", exePath);
     RegSetStr(hKey, L"UninstallString", uninstallCmd);
+    RegSetStr(hKey, L"QuietUninstallString", quietUninstallCmd);
     RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/ArKT-7/QuickRotate");
 
     DWORD one = 1;
