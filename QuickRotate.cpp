@@ -198,6 +198,8 @@ void RefreshTheme(HWND h) {
 const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
 const wchar_t* CURRENT_VER = VERSION_W;
 const wchar_t* UNINSTALL_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ArKT_QuickRotate";
+const wchar_t* APPPATH_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\QuickRotate.exe";
+const wchar_t* SETTINGS_REG_PATH = L"Software\\ArKT-7\\QuickRotate";
 void UpdateLayout(HWND h);
 void PerformUpdateCheck(HWND h);
 void PerformDownload(HWND h);
@@ -327,6 +329,13 @@ void RegisterUninstaller() {
     RegSetStr(hKey, L"QuietUninstallString", quietUninstallCmd);
     RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/ArKT-7/QuickRotate");
 
+    HKEY hAppPathKey;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, APPPATH_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hAppPathKey, NULL) == ERROR_SUCCESS) {
+        RegSetStr(hAppPathKey, L"", g_exePath);
+        RegSetStr(hAppPathKey, L"Path", g_appDir);
+        RegCloseKey(hAppPathKey);
+    }
+
     DWORD one = 1;
     RegSetValueExW(hKey, L"NoModify", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
     RegSetValueExW(hKey, L"NoRepair", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
@@ -416,7 +425,8 @@ bool RunUninstall(bool silent = false) {
         DeleteFileW(szLinkPath);
     }
 
-    RegDeleteKeyW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate");
+    RegDeleteKeyW(HKEY_CURRENT_USER, APPPATH_REG_PATH);
+    RegDeleteKeyW(HKEY_CURRENT_USER, SETTINGS_REG_PATH);
     RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH);
 
     if (!silent) {
@@ -520,7 +530,7 @@ void ManageShortcut(int index, bool create) {
 
 void LoadSettings() {
     HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, SETTINGS_REG_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
         DWORD size = sizeof(DWORD); DWORD val;
         if (RegQueryValueExW(hKey, L"CloseToTray", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bCloseToTray = (val != 0);
         if (RegQueryValueExW(hKey, L"AutoStart", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bAutoStart = (val != 0);
@@ -532,7 +542,7 @@ void LoadSettings() {
 
 void SaveSettings() {
     HKEY hKey;
-    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\ArKT-7\\QuickRotate", 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, SETTINGS_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
         DWORD val = bCloseToTray ? 1 : 0;
         RegSetValueExW(hKey, L"CloseToTray", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
         val = bAutoStart ? 1 : 0;
