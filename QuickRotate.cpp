@@ -123,6 +123,11 @@ bool bUpdateMode = false;
 int bTrayToggleLP = 1;
 int bThemeMode = 0;
 wchar_t iniPath[MAX_PATH];
+wchar_t g_appDir[MAX_PATH];
+wchar_t g_exePath[MAX_PATH];
+wchar_t g_currentPath[MAX_PATH];
+wchar_t g_startMenuPath[MAX_PATH];
+wchar_t g_desktopPath[MAX_PATH];
 bool bShortcutsState[6] = {0};
 
 HWND hBtnRot[5];
@@ -289,11 +294,12 @@ bool GetAppDataPath(wchar_t* outPath, const wchar_t* appendFile) {
     return true;
 }
 
-bool GetStableExePath(wchar_t* outPath) {
-    return GetAppDataPath(outPath, L"QuickRotate.exe");
-}
-
-void InitSettingsPath() {
+void InitPaths() {
+    GetModuleFileNameW(NULL, g_currentPath, MAX_PATH);
+    GetAppDataPath(g_appDir, NULL);
+    GetAppDataPath(g_exePath, L"QuickRotate.exe");
+    SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, g_startMenuPath);
+    SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, g_desktopPath);
     if (!GetAppDataPath(iniPath, L"ArKT_QuickRotate.ini")) {
         GetModuleFileNameW(NULL, iniPath, MAX_PATH); 
         PathRemoveFileSpecW(iniPath); 
@@ -305,22 +311,22 @@ void RegSetStr(HKEY hKey, LPCWSTR name, LPCWSTR val) {
     RegSetValueExW(hKey, name, 0, REG_SZ, (const BYTE*)val, (lstrlenW(val) + 1) * sizeof(wchar_t));
 }
 
-void RegisterUninstaller(const wchar_t* exePath) {
+void RegisterUninstaller() {
     HKEY hKey;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) != ERROR_SUCCESS)
         return;
 
     wchar_t uninstallCmd[MAX_PATH + 32];
-    wnsprintfW(uninstallCmd, MAX_PATH + 32, L"\"%s\" -nuke", exePath);
+    wnsprintfW(uninstallCmd, MAX_PATH + 32, L"\"%s\" -nuke", g_exePath);
     
     wchar_t quietUninstallCmd[MAX_PATH + 32];
-    wnsprintfW(quietUninstallCmd, MAX_PATH + 32, L"\"%s\" -silentnuke", exePath);
+    wnsprintfW(quietUninstallCmd, MAX_PATH + 32, L"\"%s\" -silentnuke", g_exePath);
 
     RegSetStr(hKey, L"DisplayName", AppName);
     RegSetStr(hKey, L"DisplayVersion", CURRENT_VER);
     RegSetStr(hKey, L"Publisher", L"ArKT-7");
-    RegSetStr(hKey, L"DisplayIcon", exePath);
-    RegSetStr(hKey, L"InstallLocation", exePath);
+    RegSetStr(hKey, L"DisplayIcon", g_exePath);
+    RegSetStr(hKey, L"InstallLocation", g_appDir);
     RegSetStr(hKey, L"UninstallString", uninstallCmd);
     RegSetStr(hKey, L"QuietUninstallString", quietUninstallCmd);
     RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/ArKT-7/QuickRotate");
@@ -330,7 +336,7 @@ void RegisterUninstaller(const wchar_t* exePath) {
     RegSetValueExW(hKey, L"NoRepair", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
 
     WIN32_FILE_ATTRIBUTE_DATA fad;
-    if (GetFileAttributesExW(exePath, GetFileExInfoStandard, &fad)) {
+    if (GetFileAttributesExW(g_exePath, GetFileExInfoStandard, &fad)) {
         ULONGLONG bytes = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
         DWORD sizeKB = (DWORD)(bytes / 1024);
         RegSetValueExW(hKey, L"EstimatedSize", 0, REG_DWORD, (const BYTE*)&sizeKB, sizeof(sizeKB));
@@ -351,12 +357,11 @@ bool GetInstalledRegVersion(wchar_t* outVer) {
     return false;
 }
 
-bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
-    if (GetStableExePath(finalPath)) {
-        if (forceUpdate || GetFileAttributesW(finalPath) == INVALID_FILE_ATTRIBUTES) {
-            wchar_t current[MAX_PATH]; GetModuleFileNameW(NULL, current, MAX_PATH);
-            if (lstrcmpiW(current, finalPath) != 0) {
-                CopyFileW(current, finalPath, FALSE);
+bool EnsureInstalled(bool forceUpdate) {
+    if (g_exePath[0] != 0) {
+        if (forceUpdate || GetFileAttributesW(g_exePath) == INVALID_FILE_ATTRIBUTES) {
+            if (lstrcmpiW(g_currentPath, g_exePath) != 0) {
+                CopyFileW(g_currentPath, g_exePath, FALSE);
             }
         }
 
@@ -374,7 +379,7 @@ bool EnsureInstalled(wchar_t* finalPath, bool forceUpdate) {
         }
 
         if (bNeedsReg) {
-            RegisterUninstaller(finalPath);
+            RegisterUninstaller();
         }
         
         return true;
@@ -401,10 +406,6 @@ bool RunUninstall(bool silent = false) {
     }
 
     KillExistingInstance();
-
-    wchar_t exePath[MAX_PATH];
-    GetStableExePath(exePath);
-
     UpdateAutoStartRegistry(false);
 
     for (int i = 0; i < 6; i++) {
@@ -413,10 +414,9 @@ bool RunUninstall(bool silent = false) {
         DeleteFileW(path);
     }
 
-    wchar_t szStartMenu[MAX_PATH];
-    if (SUCCEEDED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, szStartMenu))) {
+    if (g_startMenuPath[0] != 0) {
         wchar_t szLinkPath[MAX_PATH];
-        wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", szStartMenu);
+        wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", g_startMenuPath);
         DeleteFileW(szLinkPath);
     }
 
@@ -427,13 +427,10 @@ bool RunUninstall(bool silent = false) {
         MessageBoxW(NULL, L"Quick Rotate was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
     }
 
-    wchar_t appDir[MAX_PATH];
-    GetAppDataPath(appDir, NULL);
-    
     wchar_t cmdLine[MAX_PATH * 3 + 128];
     wnsprintfW(cmdLine, MAX_PATH * 3 + 128,
         L"/c cd \\ & ping 127.0.0.1 -n 3 > nul & del /f /q \"%s\" & ping 127.0.0.1 -n 2 > nul & rmdir /s /q \"%s\"",
-        exePath, appDir);
+        g_exePath, g_appDir);
 
     SHELLEXECUTEINFOW sei = {0};
     sei.cbSize = sizeof(sei);
@@ -449,10 +446,9 @@ void UpdateAutoStartRegistry(bool enable) {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Run", 0, KEY_WRITE, &hKey) == ERROR_SUCCESS) {
         if (enable) {
-            wchar_t exePath[MAX_PATH];
-            EnsureInstalled(exePath, true); 
+            EnsureInstalled(true); 
             wchar_t cmd[MAX_PATH + 20];
-            wnsprintfW(cmd, MAX_PATH + 20, L"\"%s\" -tray", exePath);
+            wnsprintfW(cmd, MAX_PATH + 20, L"\"%s\" -tray", g_exePath);
             RegSetValueExW(hKey, AppClass, 0, REG_SZ, (LPBYTE)cmd, (lstrlenW(cmd) + 1) * sizeof(wchar_t));
         } else {
             RegDeleteValueW(hKey, AppClass);
@@ -462,16 +458,13 @@ void UpdateAutoStartRegistry(bool enable) {
 }
 
 void GetLinkPath(wchar_t* outPath, const wchar_t* name) {
-    wchar_t szDesktop[MAX_PATH];
-    SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, szDesktop);
-    wnsprintfW(outPath, MAX_PATH, L"%s\\%s.lnk", szDesktop, name);
+    wnsprintfW(outPath, MAX_PATH, L"%s\\%s.lnk", g_desktopPath, name);
 }
 
 HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
     HRESULT hres;
     IShellLink* psl;
-    wchar_t exePath[MAX_PATH];
-    EnsureInstalled(exePath, false);
+    EnsureInstalled(false);
     wchar_t szLinkPath[MAX_PATH];
     GetLinkPath(szLinkPath, lpszSuffix);
 
@@ -480,10 +473,10 @@ HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
     hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl);
     if (SUCCEEDED(hres)) {
         IPersistFile* ppf;
-        psl->SetPath(exePath);
+        psl->SetPath(g_exePath);
         psl->SetArguments(lpszArgs);
         psl->SetDescription(lpszDesc);
-        psl->SetIconLocation(exePath, 0);
+        psl->SetIconLocation(g_exePath, 0);
         hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
         if (SUCCEEDED(hres)) { hres = ppf->Save(szLinkPath, TRUE); ppf->Release(); }
         psl->Release();
@@ -492,25 +485,22 @@ HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
 }
 
 void EnsureStartMenuShortcut() {
-    wchar_t szStartMenu[MAX_PATH];
-    if (FAILED(SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, szStartMenu))) return;
+    if (g_startMenuPath[0] == 0) return;
     wchar_t szLinkPath[MAX_PATH];
-    wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", szStartMenu);
+    wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", g_startMenuPath);
 
     if (GetFileAttributesW(szLinkPath) != INVALID_FILE_ATTRIBUTES) return;
 
     HRESULT hres;
     IShellLink* psl;
-    wchar_t exePath[MAX_PATH];
-    
-    EnsureInstalled(exePath, false);
+    EnsureInstalled(false);
 
     hres = CoCreateInstance(CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, IID_IShellLink, (LPVOID*)&psl);
     if (SUCCEEDED(hres)) {
         IPersistFile* ppf;
-        psl->SetPath(exePath);
+        psl->SetPath(g_exePath);
         psl->SetDescription(AppName);
-        psl->SetIconLocation(exePath, 0);
+        psl->SetIconLocation(g_exePath, 0);
         hres = psl->QueryInterface(IID_IPersistFile, (LPVOID*)&ppf);
         if (SUCCEEDED(hres)) { 
             ppf->Save(szLinkPath, TRUE); 
@@ -1553,22 +1543,18 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     if (g_hDwm) g_pfnDwmSetAttr = (tDWM)GetProcAddress(g_hDwm, "DwmSetWindowAttribute");
 
     RefreshTheme(NULL);
-    InitSettingsPath();
+    InitPaths();
     if (GetFileAttributesW(iniPath) == INVALID_FILE_ATTRIBUTES) {
         SaveSettings();
     }
 
     LoadSettings();
 
-    wchar_t exePath[MAX_PATH], oldPath[MAX_PATH];
-    GetModuleFileNameW(NULL, exePath, MAX_PATH);
-    lstrcpyW(oldPath, exePath);
+    wchar_t oldPath[MAX_PATH];
+    lstrcpyW(oldPath, g_currentPath);
     PathRemoveFileSpecW(oldPath);
     PathAppendW(oldPath, L"QuickRotate.old");
     DeleteFileW(oldPath);
-
-    wchar_t safePath[MAX_PATH];
-    GetStableExePath(safePath);
     
     if (bAutoStart) UpdateAutoStartRegistry(true);
 
@@ -1601,7 +1587,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 KillExistingInstance();
             }
 
-            EnsureInstalled(safePath, true);
+            EnsureInstalled(true);
             EnsureStartMenuShortcut();
 
             if (hMutexInst) {
@@ -1625,10 +1611,8 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 CleanExit();
             } 
             
-            wchar_t p[MAX_PATH];
-            GetModuleFileNameW(NULL, p, MAX_PATH);
-            wchar_t* n = p;
-            for (wchar_t* t = p; *t; t++) if (*t == L'\\' || *t == L'/') n = t + 1;
+            wchar_t* n = g_currentPath;
+            for (wchar_t* t = g_currentPath; *t; t++) if (*t == L'\\' || *t == L'/') n = t + 1;
             
             wchar_t msg[1024];
             wnsprintfW(msg, 1024,
@@ -1649,11 +1633,9 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     }
 
     bool bTempRun = false;
-    wchar_t currentPath[MAX_PATH];
-    GetModuleFileNameW(NULL, currentPath, MAX_PATH);
 
-    if (lstrcmpiW(currentPath, safePath) != 0) {
-        if (GetFileAttributesW(safePath) != INVALID_FILE_ATTRIBUTES) {
+    if (lstrcmpiW(g_currentPath, g_exePath) != 0) {
+        if (GetFileAttributesW(g_exePath) != INVALID_FILE_ATTRIBUTES) {
             wchar_t installedVer[32] = {0};
             int verDiff = 1;
             if (GetInstalledRegVersion(installedVer)) {
@@ -1671,7 +1653,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 
                 if (MessageBoxW(NULL, msg, AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) == IDCANCEL) {
                     KillExistingInstance();
-                    ShellExecuteW(NULL, L"open", safePath, NULL, NULL, SW_SHOW);
+                    ShellExecuteW(NULL, L"open", g_exePath, NULL, NULL, SW_SHOW);
                     CleanExit(0);
                 } else {
                     bUpdateMode = false;
@@ -1684,7 +1666,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             bUpdateMode = true;
         }
     } else {
-        EnsureInstalled(safePath, false);
+        EnsureInstalled(false);
         EnsureStartMenuShortcut();
     }
 
@@ -1772,14 +1754,13 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     }
     
     if (bUpdateMode) {
-        wchar_t current[MAX_PATH]; GetModuleFileNameW(NULL, current, MAX_PATH);
-        CopyFileW(current, safePath, FALSE); 
+        CopyFileW(g_currentPath, g_exePath, FALSE); 
         
-        EnsureInstalled(safePath, false);
+        EnsureInstalled(false);
         EnsureStartMenuShortcut();
 
         if (bCloseToTray) {
-            ShellExecuteW(NULL, L"open", safePath, L"-tray", NULL, SW_SHOW);
+            ShellExecuteW(NULL, L"open", g_exePath, L"-tray", NULL, SW_SHOW);
         }
     }
 
