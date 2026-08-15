@@ -16,7 +16,6 @@
 #include <shlobj.h>
 #include <shlwapi.h>
 #include <gdiplus.h>
-#include <stdlib.h>
 #include <wchar.h>
 
 #ifndef ODS_NOFOCUSRECT
@@ -94,10 +93,24 @@ using namespace Gdiplus;
 #define ID_SC_APP         4005
 
 #define APP_NAME_STR L"Quick Rotate"
+#define APP_FILE_STR L"QuickRotate"
+#define APP_AUTHOR_STR L"ArKT-7"
+#define APP_AUTHOR_SHORT L"ArKT"
+#define APP_CLASS_STR APP_AUTHOR_SHORT L"_" APP_FILE_STR
+
+#define REG_KEY_TRAY    L"CloseToTray"
+#define REG_KEY_START   L"AutoStart"
+#define REG_KEY_MODE    L"TrayToggleLP"
+#define REG_KEY_THEME   L"ThemeMode"
+
+const wchar_t* EXE_NAME = APP_FILE_STR L".exe";
+const wchar_t* OLD_NAME = APP_FILE_STR L".old";
+const wchar_t* LNK_NAME = APP_NAME_STR L".lnk";
 
 const wchar_t* AppName  = APP_NAME_STR;
-const wchar_t* AppTitle = L"Quick Rotate v6.2";
-const wchar_t* AppClass = L"ArKT_QuickRotate";
+const wchar_t* AppTitle = APP_NAME_STR L" v" VERSION_SHORT_W;
+const wchar_t* AppClass = APP_CLASS_STR;
+const wchar_t* AppMutex = APP_CLASS_STR L"_Mutex";
 const wchar_t* SC_NAMES[] = { L"Rotate Screen Clockwise", L"Set Landscape", L"Set Portrait", L"Set Flipped Landscape", L"Set Flipped Portrait", APP_NAME_STR };
 
 HFONT hFontBold = NULL;
@@ -163,15 +176,18 @@ static inline void CleanExit(int code = 0) {
     ExitProcess(code);
 }
 
+void RegSetStr(HKEY hKey, LPCWSTR name, LPCWSTR val);
+void RegSetInt(HKEY hKey, LPCWSTR name, DWORD val);
+DWORD RegGetInt(HKEY hKey, LPCWSTR name, DWORD defVal);
+bool RegGetStr(HKEY hKey, LPCWSTR name, wchar_t* outBuf, DWORD maxChars);
+
 void RefreshTheme(HWND h) {
     DWORD lightModeVal = 1;
     
     if (bThemeMode == 0) {
-        DWORD valSize = sizeof(lightModeVal);
         HKEY hKey;
-    
         if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-            RegQueryValueExW(hKey, L"AppsUseLightTheme", NULL, NULL, (LPBYTE)&lightModeVal, &valSize);
+            lightModeVal = RegGetInt(hKey, L"AppsUseLightTheme", 1);
             RegCloseKey(hKey);
         }
     } else if (bThemeMode == 1) {
@@ -195,11 +211,11 @@ void RefreshTheme(HWND h) {
     }
 }
 
-const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/ArKT-7/QuickRotate/main/version.h";
+const wchar_t* UPDATE_CHECK_URL = L"https://raw.githubusercontent.com/" APP_AUTHOR_STR L"/" APP_FILE_STR L"/main/version.h";
 const wchar_t* CURRENT_VER = VERSION_W;
-const wchar_t* UNINSTALL_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\ArKT_QuickRotate";
-const wchar_t* APPPATH_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\QuickRotate.exe";
-const wchar_t* SETTINGS_REG_PATH = L"Software\\ArKT-7\\QuickRotate";
+const wchar_t* UNINSTALL_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\" APP_CLASS_STR;
+const wchar_t* APPPATH_REG_PATH = L"Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\" APP_FILE_STR L".exe";
+const wchar_t* SETTINGS_REG_PATH = L"Software\\" APP_AUTHOR_STR L"\\" APP_FILE_STR;
 void UpdateLayout(HWND h);
 void PerformUpdateCheck(HWND h);
 void PerformDownload(HWND h);
@@ -300,13 +316,29 @@ bool GetAppDataPath(wchar_t* outPath, const wchar_t* appendFile) {
 void InitPaths() {
     GetModuleFileNameW(NULL, g_currentPath, MAX_PATH);
     GetAppDataPath(g_appDir, NULL);
-    GetAppDataPath(g_exePath, L"QuickRotate.exe");
+    GetAppDataPath(g_exePath, EXE_NAME);
     SHGetFolderPathW(NULL, CSIDL_PROGRAMS, NULL, 0, g_startMenuPath);
     SHGetFolderPathW(NULL, CSIDL_DESKTOPDIRECTORY, NULL, 0, g_desktopPath);
 }
 
 void RegSetStr(HKEY hKey, LPCWSTR name, LPCWSTR val) {
     RegSetValueExW(hKey, name, 0, REG_SZ, (const BYTE*)val, (lstrlenW(val) + 1) * sizeof(wchar_t));
+}
+
+void RegSetInt(HKEY hKey, LPCWSTR name, DWORD val) {
+    RegSetValueExW(hKey, name, 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+}
+
+DWORD RegGetInt(HKEY hKey, LPCWSTR name, DWORD defVal) {
+    DWORD val = defVal;
+    DWORD size = sizeof(DWORD);
+    if (RegQueryValueExW(hKey, name, NULL, NULL, (LPBYTE)&val, &size) != ERROR_SUCCESS) return defVal;
+    return val;
+}
+
+bool RegGetStr(HKEY hKey, LPCWSTR name, wchar_t* outBuf, DWORD maxChars) {
+    DWORD size = maxChars * sizeof(wchar_t);
+    return (RegQueryValueExW(hKey, name, NULL, NULL, (LPBYTE)outBuf, &size) == ERROR_SUCCESS);
 }
 
 void RegisterUninstaller() {
@@ -322,12 +354,12 @@ void RegisterUninstaller() {
 
     RegSetStr(hKey, L"DisplayName", AppName);
     RegSetStr(hKey, L"DisplayVersion", CURRENT_VER);
-    RegSetStr(hKey, L"Publisher", L"ArKT-7");
+    RegSetStr(hKey, L"Publisher", APP_AUTHOR_STR);
     RegSetStr(hKey, L"DisplayIcon", g_exePath);
     RegSetStr(hKey, L"InstallLocation", g_appDir);
     RegSetStr(hKey, L"UninstallString", uninstallCmd);
     RegSetStr(hKey, L"QuietUninstallString", quietUninstallCmd);
-    RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/ArKT-7/QuickRotate");
+    RegSetStr(hKey, L"URLInfoAbout", L"https://github.com/" APP_AUTHOR_STR L"/" APP_FILE_STR);
 
     HKEY hAppPathKey;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, APPPATH_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hAppPathKey, NULL) == ERROR_SUCCESS) {
@@ -336,15 +368,14 @@ void RegisterUninstaller() {
         RegCloseKey(hAppPathKey);
     }
 
-    DWORD one = 1;
-    RegSetValueExW(hKey, L"NoModify", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
-    RegSetValueExW(hKey, L"NoRepair", 0, REG_DWORD, (const BYTE*)&one, sizeof(one));
+    RegSetInt(hKey, L"NoModify", 1);
+    RegSetInt(hKey, L"NoRepair", 1);
 
     WIN32_FILE_ATTRIBUTE_DATA fad;
     if (GetFileAttributesExW(g_exePath, GetFileExInfoStandard, &fad)) {
         ULONGLONG bytes = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
         DWORD sizeKB = (DWORD)(bytes / 1024);
-        RegSetValueExW(hKey, L"EstimatedSize", 0, REG_DWORD, (const BYTE*)&sizeKB, sizeof(sizeKB));
+        RegSetInt(hKey, L"EstimatedSize", sizeKB);
     }
     RegCloseKey(hKey);
 }
@@ -352,12 +383,9 @@ void RegisterUninstaller() {
 bool GetInstalledRegVersion(wchar_t* outVer) {
     HKEY hCheck;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, KEY_READ, &hCheck) == ERROR_SUCCESS) {
-        DWORD size = 64 * sizeof(wchar_t);
-        if (RegQueryValueExW(hCheck, L"DisplayVersion", NULL, NULL, (LPBYTE)outVer, &size) == ERROR_SUCCESS) {
-            RegCloseKey(hCheck);
-            return true;
-        }
+        bool res = RegGetStr(hCheck, L"DisplayVersion", outVer, 64);
         RegCloseKey(hCheck);
+        return res;
     }
     return false;
 }
@@ -374,8 +402,7 @@ bool EnsureInstalled(bool forceUpdate) {
         bool bNeedsReg = true;
         if (RegOpenKeyExW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH, 0, KEY_READ, &hCheck) == ERROR_SUCCESS) {
             wchar_t regVer[64] = {0};
-            DWORD size = sizeof(regVer);
-            if (RegQueryValueExW(hCheck, L"DisplayVersion", NULL, NULL, (LPBYTE)regVer, &size) == ERROR_SUCCESS) {
+            if (RegGetStr(hCheck, L"DisplayVersion", regVer, 64)) {
                 if (lstrcmpW(regVer, CURRENT_VER) == 0) {
                     bNeedsReg = false;
                 }
@@ -405,7 +432,7 @@ void KillExistingInstance() {
 
 bool RunUninstall(bool silent = false) {
     if (!silent) {
-        if (MessageBoxW(NULL, L"Are you sure you want to uninstall Quick Rotate and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) {
+        if (MessageBoxW(NULL, L"Are you sure you want to uninstall " APP_NAME_STR L" and remove all settings?", AppTitle, MB_OKCANCEL | MB_ICONWARNING | MB_DEFBUTTON2) != IDOK) {
             return false;
         }
     }
@@ -421,7 +448,7 @@ bool RunUninstall(bool silent = false) {
 
     if (g_startMenuPath[0] != 0) {
         wchar_t szLinkPath[MAX_PATH];
-        wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", g_startMenuPath);
+        wnsprintfW(szLinkPath, MAX_PATH, L"%s\\%s", g_startMenuPath, LNK_NAME);
         DeleteFileW(szLinkPath);
     }
 
@@ -430,7 +457,7 @@ bool RunUninstall(bool silent = false) {
     RegDeleteKeyW(HKEY_CURRENT_USER, UNINSTALL_REG_PATH);
 
     if (!silent) {
-        MessageBoxW(NULL, L"Quick Rotate was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
+        MessageBoxW(NULL, APP_NAME_STR L" was successfully removed from your computer.", AppTitle, MB_OK | MB_ICONINFORMATION);
     }
 
     wchar_t cmdLine[MAX_PATH * 3 + 128];
@@ -455,7 +482,7 @@ void UpdateAutoStartRegistry(bool enable) {
             EnsureInstalled(true); 
             wchar_t cmd[MAX_PATH + 20];
             wnsprintfW(cmd, MAX_PATH + 20, L"\"%s\" -tray", g_exePath);
-            RegSetValueExW(hKey, AppClass, 0, REG_SZ, (LPBYTE)cmd, (lstrlenW(cmd) + 1) * sizeof(wchar_t));
+            RegSetStr(hKey, AppClass, cmd);
         } else {
             RegDeleteValueW(hKey, AppClass);
         }
@@ -493,7 +520,7 @@ HRESULT CreateLink(LPCWSTR lpszArgs, LPCWSTR lpszDesc, LPCWSTR lpszSuffix) {
 void EnsureStartMenuShortcut() {
     if (g_startMenuPath[0] == 0) return;
     wchar_t szLinkPath[MAX_PATH];
-    wnsprintfW(szLinkPath, MAX_PATH, L"%s\\Quick Rotate.lnk", g_startMenuPath);
+    wnsprintfW(szLinkPath, MAX_PATH, L"%s\\%s", g_startMenuPath, LNK_NAME);
 
     if (GetFileAttributesW(szLinkPath) != INVALID_FILE_ATTRIBUTES) return;
 
@@ -517,7 +544,7 @@ void EnsureStartMenuShortcut() {
 }
 
 void ManageShortcut(int index, bool create) {
-    LPCWSTR args[]  = {L"next", L"0", L"90", L"180", L"270", L""};
+    static const LPCWSTR args[]  = {L"next", L"0", L"90", L"180", L"270", L""};
     
     if (create) {
         CreateLink(args[index], SC_NAMES[index], SC_NAMES[index]);
@@ -531,11 +558,10 @@ void ManageShortcut(int index, bool create) {
 void LoadSettings() {
     HKEY hKey;
     if (RegOpenKeyExW(HKEY_CURRENT_USER, SETTINGS_REG_PATH, 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        DWORD size = sizeof(DWORD); DWORD val;
-        if (RegQueryValueExW(hKey, L"CloseToTray", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bCloseToTray = (val != 0);
-        if (RegQueryValueExW(hKey, L"AutoStart", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bAutoStart = (val != 0);
-        if (RegQueryValueExW(hKey, L"TrayToggleLP", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bTrayToggleLP = val;
-        if (RegQueryValueExW(hKey, L"ThemeMode", NULL, NULL, (LPBYTE)&val, &size) == ERROR_SUCCESS) bThemeMode = val;
+        bCloseToTray = (RegGetInt(hKey, REG_KEY_TRAY, 1) != 0);
+        bAutoStart = (RegGetInt(hKey, REG_KEY_START, 0) != 0);
+        bTrayToggleLP = RegGetInt(hKey, REG_KEY_MODE, 1);
+        bThemeMode = RegGetInt(hKey, REG_KEY_THEME, 0);
         RegCloseKey(hKey);
     }
 }
@@ -543,14 +569,10 @@ void LoadSettings() {
 void SaveSettings() {
     HKEY hKey;
     if (RegCreateKeyExW(HKEY_CURRENT_USER, SETTINGS_REG_PATH, 0, NULL, 0, KEY_WRITE, NULL, &hKey, NULL) == ERROR_SUCCESS) {
-        DWORD val = bCloseToTray ? 1 : 0;
-        RegSetValueExW(hKey, L"CloseToTray", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        val = bAutoStart ? 1 : 0;
-        RegSetValueExW(hKey, L"AutoStart", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        val = bTrayToggleLP;
-        RegSetValueExW(hKey, L"TrayToggleLP", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
-        val = bThemeMode;
-        RegSetValueExW(hKey, L"ThemeMode", 0, REG_DWORD, (const BYTE*)&val, sizeof(val));
+        RegSetInt(hKey, REG_KEY_TRAY, bCloseToTray ? 1 : 0);
+        RegSetInt(hKey, REG_KEY_START, bAutoStart ? 1 : 0);
+        RegSetInt(hKey, REG_KEY_MODE, bTrayToggleLP);
+        RegSetInt(hKey, REG_KEY_THEME, bThemeMode);
         RegCloseKey(hKey);
     }
 }
@@ -675,10 +697,10 @@ HFONT MakeFont(int size, int weight) {
 }
 
 void RecreateFonts() {
-    if (hFontTitle) DeleteObject(hFontTitle);
-    if (hFontBold) DeleteObject(hFontBold);
-    if (hFontNormal) DeleteObject(hFontNormal);
-    if (hFontHeader) DeleteObject(hFontHeader);
+    DeleteObject(hFontTitle);
+    DeleteObject(hFontBold);
+    DeleteObject(hFontNormal);
+    DeleteObject(hFontHeader);
     
     hFontBold   = MakeFont(21, FW_BOLD);
     hFontNormal = MakeFont(17, FW_NORMAL);
@@ -713,10 +735,10 @@ void UpdateLayout(HWND h) {
     if (hSetControls[10]) mv(hSetControls[10], 426, 25);
 
     if (bUpdatePageMode) {
-        mv(hLblStatus, 160, 35);
-        mv(hLblCurVer, 200, 30);
-        mv(hLblNewVer, 230, 30);
-        mv(hProgress, 275, 40);
+        mv(hLblStatus, 166, 36);
+        mv(hLblCurVer, 206, 30);
+        mv(hLblNewVer, 236, 30);
+        mv(hProgress, 278, 40);
         mv(hBtnDownload, 320, 60);
     }
     
@@ -923,8 +945,8 @@ void PerformUpdateCheck(HWND h) {
             GetVal(buf, "VERSION_W", ver);
             GetVal(buf, "DOWNLOAD_URL", g_downloadUrl);
             GetVal(buf, "BUILD", rbS);
-            int remB = (int)wcstol(rbS, NULL, 10);
-            int locB = atoi(BUILD);
+            int remB = StrToIntW(rbS);
+            int locB = StrToIntA(BUILD);
             SetCtrlFont(hLblCurVer, hFontBold);
             wchar_t cur[64]; wnsprintfW(cur, 64, L"Current: %s", VERSION_W);
             SetWindowTextW(hLblCurVer, cur);
@@ -1015,7 +1037,7 @@ void PerformDownload(HWND h) {
         Sleep(800);
 
         wchar_t cur[MAX_PATH], old[MAX_PATH]; GetModuleFileNameW(NULL, cur, MAX_PATH);
-        lstrcpyW(old, cur); PathRemoveFileSpecW(old); PathAppendW(old, L"QuickRotate.old");
+        lstrcpyW(old, cur); PathRemoveFileSpecW(old); PathAppendW(old, OLD_NAME);
         DeleteFileW(old);
         
         if (MoveFileW(cur, old) && MoveFileW(newE, cur)) {
@@ -1110,7 +1132,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             {2, L"Start with Windows", ID_CHK_AUTOSTART, 46},
             {12, themeText, ID_CHK_THEME, 82},
             {8, trayText, ID_CHK_TRAYMODE, 118},
-            {9, L"Shortcut: Quick Rotate App", ID_SC_APP, 172}
+            {9, L"Shortcut: " APP_NAME_STR L" App", ID_SC_APP, 172}
         };
 
         for (int i = 0; i < 5; i++) {
@@ -1531,7 +1553,7 @@ LRESULT CALLBACK WndProc(HWND h, UINT m, WPARAM w, LPARAM l) {
             SelectObject(dc, hOldPen);
             DeleteObject(hPen);
             wchar_t verText[64];
-            wnsprintfW(verText, 64, L"Quick Rotate %s by ArKT", CURRENT_VER);
+            wnsprintfW(verText, 64, APP_NAME_STR L" %s by " APP_AUTHOR_SHORT, CURRENT_VER);
             RECT tr = {S(BTN_X), S(STATUS_Y), S(BTN_X) + S(BTN_W), S(WIN_H)};
             DrawTextW(dc, verText, -1, &tr, DT_CENTER | DT_TOP | DT_SINGLELINE);
         } 
@@ -1562,7 +1584,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     InitPaths();
 
     wchar_t oldIniPath[MAX_PATH];
-    wnsprintfW(oldIniPath, MAX_PATH, L"%s\\ArKT_QuickRotate.ini", g_appDir);
+    wnsprintfW(oldIniPath, MAX_PATH, L"%s\\%s.ini", g_appDir, AppClass);
     
     if (GetFileAttributesW(oldIniPath) != INVALID_FILE_ATTRIBUTES) {
         bCloseToTray = GetPrivateProfileIntW(L"Settings", L"CloseToTray", 1, oldIniPath);
@@ -1580,7 +1602,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
     wchar_t oldPath[MAX_PATH];
     lstrcpyW(oldPath, g_currentPath);
     PathRemoveFileSpecW(oldPath);
-    PathAppendW(oldPath, L"QuickRotate.old");
+    PathAppendW(oldPath, OLD_NAME);
     DeleteFileW(oldPath);
     
     if (bAutoStart) UpdateAutoStartRegistry(true);
@@ -1609,7 +1631,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 CleanExit();
             }
 
-            HANDLE hMutexInst = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
+            HANDLE hMutexInst = CreateMutexW(NULL, TRUE, AppMutex);
             if (GetLastError() == ERROR_ALREADY_EXISTS) {
                 KillExistingInstance();
             }
@@ -1672,7 +1694,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
             if (verDiff < 0) {
                 wchar_t msg[512];
                 wnsprintfW(msg, 512, 
-                    L"You are launching Quick Rotate v%s, but a newer version (v%s) is already installed on your PC.\n\n"
+                    L"You are launching " APP_NAME_STR L" v%s, but a newer version (v%s) is already installed on your PC.\n\n"
                     L"How would you like to proceed?\n\n"
                     L"[Cancel] or [X] \t-  To launch the newer version\n"
                     L"[OK] \t\t-  Run this older version temporarily", 
@@ -1697,7 +1719,7 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
         EnsureStartMenuShortcut();
     }
 
-    HANDLE hMutex = CreateMutexW(NULL, TRUE, L"ArKT_QuickRotate_Mutex");
+    HANDLE hMutex = CreateMutexW(NULL, TRUE, AppMutex);
     if (GetLastError() == ERROR_ALREADY_EXISTS) {
         if (bUpdateMode || bTempRun) {
             KillExistingInstance();

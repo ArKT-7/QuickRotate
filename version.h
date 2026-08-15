@@ -1,6 +1,7 @@
-#define VERSION_STR "6.2.6"
-#define VERSION_W L"6.2.6"
-#define VERSION_CSV 6,2,6,0
-#define VERSION_XML "6.2.6.0"
+#define VERSION_STR "6.2.7"
+#define VERSION_W L"6.2.7"
+#define VERSION_SHORT_W L"6.2"
+#define VERSION_CSV 6,2,7,0
+#define VERSION_XML "6.2.7.0"
 #define DOWNLOAD_URL L"https://github.com/ArKT-7/QuickRotate/releases/latest/download/QuickRotate.exe"
-#define BUILD "2"
+#define BUILD "1"
