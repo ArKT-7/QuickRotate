@@ -394,7 +394,15 @@ bool EnsureInstalled(bool forceUpdate) {
     if (g_exePath[0] != 0) {
         if (forceUpdate || GetFileAttributesW(g_exePath) == INVALID_FILE_ATTRIBUTES) {
             if (lstrcmpiW(g_currentPath, g_exePath) != 0) {
-                CopyFileW(g_currentPath, g_exePath, FALSE);
+                bool copied = false;
+                for (int i = 0; i < 20; i++) { 
+                    if (CopyFileW(g_currentPath, g_exePath, FALSE)) {
+                        copied = true;
+                        break;
+                    }
+                    Sleep(50); 
+                }
+                if (!copied) return false; 
             }
         }
 
@@ -1636,14 +1644,16 @@ extern "C" int WINAPI WinMain(HINSTANCE hI, HINSTANCE hP, LPSTR c, int s) {
                 KillExistingInstance();
             }
 
-            EnsureInstalled(true);
-            EnsureStartMenuShortcut();
+            bool installSuccess = EnsureInstalled(true);
+            if (installSuccess) {
+                EnsureStartMenuShortcut();
+            }
 
             if (hMutexInst) {
                 ReleaseMutex(hMutexInst);
                 CloseHandle(hMutexInst); 
             }
-            CleanExit();
+            CleanExit(installSuccess ? 0 : 1603); 
         }
         else {
             if (lstrcmpiW(cmd, L"next") == 0 || lstrcmpiW(cmd, L"rotate") == 0) {
